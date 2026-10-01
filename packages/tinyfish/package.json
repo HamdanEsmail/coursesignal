@@ -1,0 +1,20 @@
+{
+  "name": "@coursesignal/tinyfish",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --root ../.. tests/unit/tinyfish-transport.test.ts"
+  },
+  "dependencies": {
+    "@coursesignal/contracts": "0.1.0"
+  },
+  "devDependencies": {
+    "typescript": "6.0.3",
+    "vitest": "5.0.3"
+  }
+}

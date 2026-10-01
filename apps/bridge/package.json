@@ -1,0 +1,27 @@
+{
+  "name": "@coursesignal/bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "terminal": "tsx src/terminal.ts",
+    "imessage": "tsx src/imessage.ts",
+    "proof:echo": "tsx src/proof.ts --echo",
+    "proof:research": "tsx src/proof.ts --research",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@coursesignal/contracts": "0.1.0",
+    "@supabase/supabase-js": "2.117.2",
+    "@tiny-fish/sdk": "0.8.0",
+    "spectrum-ts": "12.10.1",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.0",
+    "tsx": "4.23.15",
+    "typescript": "6.0.3",
+    "vitest": "5.0.3"
+  }
+}

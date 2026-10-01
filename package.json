@@ -1,0 +1,31 @@
+{
+  "name": "coursesignal",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "An evidence-first student copilot that lives in iMessage.",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "dev": "npm run dev --workspace @coursesignal/web",
+    "dev:web": "npm run dev --workspace @coursesignal/web",
+    "terminal": "npm run terminal --workspace @coursesignal/bridge",
+    "imessage": "npm run imessage --workspace @coursesignal/bridge",
+    "proof:echo": "npm run proof:echo --workspace @coursesignal/bridge",
+    "proof:research": "npm run proof:research --workspace @coursesignal/bridge",
+    "deploy:web": "npm run build --workspace @coursesignal/web && npx wrangler@4.146.0 pages deploy apps/web/dist --project-name=coursesignal",
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "check": "npm run typecheck && npm run test && npm run build"
+  },
+  "devDependencies": {
+    "typescript": "6.0.3",
+    "vitest": "5.0.3"
+  }
+}

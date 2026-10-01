@@ -1,0 +1,23 @@
+node_modules/
+dist/
+.vite/
+.wrangler/
+.playwright-cli/
+coverage/
+*.log
+*.tsbuildinfo
+.DS_Store
+
+# Local credentials and provider state
+.env
+.env.*
+!.env.example
+*.local
+private-handoff/
+artifacts/private/
+
+# Generated QA output
+artifacts/qa/
+test-results/
+playwright-report/
+output/

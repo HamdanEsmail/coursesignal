@@ -1,0 +1,22 @@
+{
+  "name": "@coursesignal/provider-control",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --root ../.. tests/unit/provider-control.test.ts tests/database/migrations.test.ts"
+  },
+  "dependencies": {
+    "@coursesignal/contracts": "0.1.0"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.5.8",
+    "@types/node": "24.19.0",
+    "typescript": "6.0.3",
+    "vitest": "5.0.3"
+  }
+}

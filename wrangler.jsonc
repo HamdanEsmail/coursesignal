@@ -1,0 +1,6 @@
+{
+  "name": "coursesignal",
+  "compatibility_date": "2026-10-02",
+  "pages_build_output_dir": "./apps/web/dist",
+  "send_metrics": false
+}
