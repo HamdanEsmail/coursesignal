@@ -1,6 +1,6 @@
 # Deployment map
 
-CourseSignal uses three deliberately separate cloud jobs. Keeping them separate prevents the public website from receiving messaging or provider credentials.
+Lodge uses three deliberately separate cloud jobs. Keeping them separate prevents the public website from receiving messaging or provider credentials.
 
 | Job | Service | What it owns |
 | --- | --- | --- |

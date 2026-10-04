@@ -1,6 +1,6 @@
 # Security posture
 
-CourseSignal processes messaging identifiers and user-authored course questions, so its default posture is minimum collection and short retention.
+Lodge processes messaging identifiers and user-authored course questions, so its default posture is minimum collection and short retention.
 
 ## Trust boundaries
 
@@ -17,7 +17,7 @@ The October 1, 2026 install reports no high or critical advisories. It reports m
 Until Photon updates the affected transitive exporter set:
 
 - the first bridge exposes no public HTTP listener;
-- untrusted W3C baggage headers are not accepted or forwarded by CourseSignal;
+- untrusted W3C baggage headers are not accepted or forwarded by Lodge;
 - CI fails on newly introduced high or critical production advisories;
 - the audit is rechecked before any public deployment;
 - the provider runtime remains isolated from the web frontend and control-plane secrets.

@@ -4,81 +4,83 @@ export type CommandRow = {
   example: string;
 };
 
-/** Crib sheet quoted from the live bridge HELP / consent flow in apps/bridge/src/handler.ts. */
 export const commandRows: CommandRow[] = [
   {
     command: "START",
-    when: "First message, or after you erased memory. CourseSignal will not research until you send this.",
+    when: "First text, or after you erased the notebook. Lodge waits here before it looks anything up.",
     example: "START",
   },
   {
+    command: "skip",
+    when: "A check-in question is optional. School, course page, events page, roles and city can all be skipped.",
+    example: "skip",
+  },
+  {
     command: "HELP",
-    when: "You want the full command list in the chat.",
+    when: "You want the short list in the thread.",
     example: "HELP",
   },
   {
-    command: "COURSE",
-    when: "Optionally remember a course so later questions stay in that context.",
-    example: "COURSE STAT 210",
+    command: "what's due",
+    when: "Lodge Fetches the saved course page and follows at most two child links for dates.",
+    example: "what's due this week",
   },
   {
-    command: "COURSE LIST",
-    when: "See the course names this chat remembers.",
-    example: "COURSE LIST",
+    command: "what's on",
+    when: "Same desk, campus or society events page instead of a syllabus.",
+    example: "what's on Friday",
   },
   {
-    command: "COURSE USE",
-    when: "Switch which remembered course is active.",
-    example: "COURSE USE STAT 210",
+    command: "remind me",
+    when: "Lodge confirms a clock time in your timezone, then texts first. 👍 is done. You-asked reminders ignore quiet hours.",
+    example: "remind me in 5 minutes",
   },
   {
-    command: "COURSE REMOVE",
-    when: "Drop one course name without erasing the rest of the chat.",
-    example: "COURSE REMOVE STAT 210",
+    command: "snooze 1h",
+    when: "Push a reminder you already asked for.",
+    example: "snooze 1h",
   },
   {
-    command: "SOURCES",
-    when: "After an answer, open the latest evidence receipt in the thread.",
-    example: "SOURCES",
+    command: "note that",
+    when: "Pin a fact into the notebook. A heart on the last list does the same. Cap is about thirty lines.",
+    example: "note that office hours moved to Baker 102",
   },
   {
-    command: "PLAN",
-    when: "Ask for a source-linked study plan. Add a goal, or it will use the last topic.",
-    example: "PLAN prepare for Thursday’s probability quiz",
+    command: "any internships",
+    when: "Lodge searches public listings, Fetches a few, and may open one careers page read-only. You get 1–3 lines, never an application.",
+    example: "any internships in Dubai?",
   },
   {
-    command: "WATCH",
-    when: "Opt in to a quiet change watch on a public source or the last result.",
-    example: "WATCH",
+    command: "I applied",
+    when: "Mark a pinned opening as applied. That is the whole tracker. The full shortlist lives on FirstRole.",
+    example: "I applied",
   },
   {
-    command: "STOP",
-    when: "Pause every proactive watch. You can still ask questions.",
-    example: "STOP",
-  },
-  {
-    command: "MEMORY",
-    when: "See what this chat currently remembers.",
-    example: "MEMORY",
-  },
-  {
-    command: "EXAMPLE",
-    when: "Look again for a worked problem on the last topic. A short follow-up such as “give me an example” does the same.",
-    example: "EXAMPLE",
+    command: "how did you get that?",
+    when: "The ledger: tool, URL, time, checked-live versus own-knowledge, named failures.",
+    example: "how did you get that?",
   },
   {
     command: "FORGET",
-    when: "Begin erasing this chat’s memory, consent, watches, and latest receipt.",
+    when: "Begin erasing this chat’s notebook, reminders, saved pages, and consent.",
     example: "FORGET",
   },
   {
     command: "FORGET CONFIRM",
-    when: "Finish deletion within ten minutes of FORGET. Or send FORGET CANCEL.",
+    when: "Finish deletion after FORGET. Or send FORGET CANCEL.",
     example: "FORGET CONFIRM",
   },
 ];
 
 export const everydayAskHint =
-  "Ask in ordinary words — a concept, campus service, textbook, scholarship, opportunity, or deadline. A public syllabus URL is fine. Do not send passwords, student IDs, or private LMS links.";
+  "Ask in ordinary words — a deadline, a public course page, a poster photo, a building name, or internships in a city. Paste a public URL and Lodge offers to save it. Keep passwords, student IDs, and private LMS links out of the thread.";
 
-export const starterCommands = ["START", "HELP", "COURSE", "SOURCES", "PLAN", "WATCH", "FORGET"] as const;
+export const starterCommands = [
+  "START",
+  "skip",
+  "what's due",
+  "remind me",
+  "note that",
+  "how did you get that?",
+  "FORGET",
+] as const;

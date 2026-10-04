@@ -1,25 +1,25 @@
-# CourseSignal
+# Lodge
 
-CourseSignal is an evidence-first student copilot that lives in iMessage. A student can send a public syllabus, course question, textbook request, campus-service question, scholarship query, event search, or deadline to verify; CourseSignal checks live sources and replies with a concise answer whose important claims have receipts.
+Lodge is a friend in iMessage. A student can send a public syllabus, course question, textbook request, campus-service question, scholarship query, event search, or deadline; Lodge checks live sources and replies with a concise answer.
 
 ## Product boundary
 
-The iMessage conversation is the product. The companion web app is a receipt and control surface for evidence, explicit student memory, opt-in watches, privacy, and deletion. It is not a second chatbot.
+The iMessage conversation is the product. The companion website is a dusk pigeon-hole wall for slips, the week file, roles, and reviewer cubbies. It is not a second chatbot.
 
-CourseSignal may explain concepts, reconcile public course sources, find legitimate materials, and propose study plans. It never logs into an LMS, takes assessments, submits coursework, makes purchases, or contacts another person without a separate explicit confirmation.
+Lodge may explain concepts, reconcile public course sources, find legitimate materials, and propose study plans. It never logs into an LMS, takes assessments, submits coursework, makes purchases, or contacts another person without a separate explicit confirmation.
 
 Its answer pipeline keeps responsibilities explicit: TinyFish Search and Fetch find and verify public evidence; an optional fixed OpenRouter/Gemma composer turns only that bounded evidence into a short student-friendly explanation; TinyFish Agent is reserved for genuinely interactive pages. The extractive TinyFish answer remains the safe fallback whenever composition is disabled or cannot be verified.
 
 ## Repository layout
 
 - `apps/bridge` — the Node.js Photon Spectrum process and local terminal proof.
-- `apps/web` — the responsive evidence-receipt interface.
+- `apps/web` — the dusk Lodge wall, hosted slips, and week file.
 - `packages/contracts` — shared, runtime-validated product contracts.
 - `packages/tinyfish` — the provider transport boundary (added after the proof is stable).
 - `packages/provider-control` — metering, reservation, retry, and idempotency controls.
 - `design/concepts` — accepted visual specifications generated for this project.
 
-The production split and release order are documented in [`docs/deployment.md`](docs/deployment.md). The public companion is at [coursesignal-bzb.pages.dev](https://coursesignal-bzb.pages.dev/). It is a fixture receipt and control surface, not a second chatbot.
+The production split and release order are documented in [`docs/deployment.md`](docs/deployment.md). The public companion stays at [coursesignal-bzb.pages.dev](https://coursesignal-bzb.pages.dev/) (Cloudflare project name unchanged). It is the dusk wall, not a second chatbot.
 
 ## Local checks
 
