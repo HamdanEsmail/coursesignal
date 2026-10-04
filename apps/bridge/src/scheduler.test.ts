@@ -164,6 +164,29 @@ describe("LodgeScheduler delivery", () => {
     expect(h.sent).toHaveLength(1);
   });
 
+  it("stamps reminder outbox rows with fireAt as availableAt", async () => {
+    const inner = new InMemoryBridgeStore();
+    const store = new TrackingBridgeStore(inner);
+    const fireAt = "2026-10-04T09:55:00.000Z";
+    await store.putConversation(CHAT, baseMemory({ pendingReminders: [reminder({ fireAt })] }));
+    const outbox = new MemoryOutboxStore();
+    const available: Array<string | undefined> = [];
+    const original = outbox.enqueueOutbox.bind(outbox);
+    outbox.enqueueOutbox = async (conversationKey, logicalKey, body, availableAt) => {
+      available.push(availableAt);
+      return original(conversationKey, logicalKey, body, availableAt);
+    };
+    const spaces = new SpaceRegistry({ wrapSecret: SECRET, store });
+    await spaces.registerLive(CHAT, {
+      id: SPACE_ID,
+      send: async () => ({ messageId: "mid-1" }),
+    });
+    const scheduler = createLodgeScheduler({ store, outbox, spaces, now: () => AFTERNOON });
+    await scheduler.tick();
+    expect(available).toHaveLength(1);
+    expect(Date.parse(available[0] ?? "")).toBeLessThanOrEqual(Date.now() + 1_000);
+  });
+
   it("marks send failures uncertain and does not retry them", async () => {
     const inner = new InMemoryBridgeStore();
     const store = new TrackingBridgeStore(inner);

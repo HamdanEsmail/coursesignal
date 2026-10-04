@@ -3,12 +3,19 @@ import { readFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { shouldDeliverWatch } from "../../../packages/provider-control/src/index.js";
+import { LodgeAgent, type LodgeTinyFishPort } from "./agent.js";
 import { numberEnvironment, optionalEnvironment, requiredEnvironment } from "./config.js";
 import { formatHumanLocalTime } from "./grounding.js";
 import { CourseSignalBridge } from "./handler.js";
 import { opaqueIdentifier } from "./identifiers.js";
 import { StructuredLogger, silentLogger } from "./logger.js";
-import { createTinyFishResearchService } from "./research.js";
+import {
+  createOpenRouterToolClientFromEnvironment,
+  isLodgeModeEnabled,
+  type LodgeModelClient,
+} from "./openrouter.js";
+import { createLodgeTinyFishPort, createTinyFishResearchService } from "./research.js";
+import { createTinyFishRolesFinder } from "./tools.js";
 import {
   LODGE_REOPEN_FAILED_HELP,
   SpaceRegistry,
@@ -27,6 +34,7 @@ import {
   type ConversationMemory,
   type OutboxClaim,
   type OutboxEnqueueResult,
+  type ResearchService,
   type SavedLink,
 } from "./types.js";
 
@@ -500,6 +508,7 @@ export class LodgeScheduler {
         conversationKey,
         reminderLogicalKey(reminder.id, fireAt),
         body,
+        new Date().toISOString(),
       );
       if (queued) {
         reminder.status = "fired";
@@ -623,9 +632,19 @@ export class LodgeScheduler {
     return true;
   }
 
-  async #enqueue(conversationKey: string, logicalKey: string, body: string): Promise<boolean> {
+  async #enqueue(
+    conversationKey: string,
+    logicalKey: string,
+    body: string,
+    availableAt?: string,
+  ): Promise<boolean> {
     try {
-      const result = await this.#outbox.enqueueOutbox(conversationKey, logicalKey, body);
+      const result = await this.#outbox.enqueueOutbox(
+        conversationKey,
+        logicalKey,
+        body,
+        availableAt,
+      );
       return result.disposition === "queued" || result.disposition === "duplicate";
     } catch (error) {
       this.#logger.warn("scheduler.enqueue_failed", {
@@ -744,15 +763,27 @@ export type LodgeBridgeStack = {
   spaces: SpaceRegistry;
   scheduler: LodgeScheduler;
   jsonStatePath?: string;
+  /** True only when LODGE_MODE is on. Default is off so Azure stays on the old path. */
+  lodgeMode: boolean;
 };
 
-/** One store, one Spectrum/terminal process. The scheduler never starts a second listener. */
-export async function createLodgeBridgeStack(options: {
+export type LodgeBridgeStackOptions = {
   stateSecret: string;
   durable?: boolean;
   fetchReadable?: FetchReadableFn;
   runRolesWatch?: RolesWatchFn;
-}): Promise<LodgeBridgeStack> {
+  research?: ResearchService;
+  tinyfish?: LodgeTinyFishPort;
+  modelClient?: LodgeModelClient;
+  debounceMs?: number;
+  /** Test override. Production reads LODGE_MODE (default off). */
+  lodgeMode?: boolean;
+};
+
+/** One store, one Spectrum/terminal process. The scheduler never starts a second listener. */
+export async function createLodgeBridgeStack(
+  options: LodgeBridgeStackOptions,
+): Promise<LodgeBridgeStack> {
   const logger = new StructuredLogger({
     secret: options.stateSecret,
     minimum: optionalEnvironment("COURSESIGNAL_LOG_LEVEL") === "debug" ? "debug" :
@@ -780,19 +811,71 @@ export async function createLodgeBridgeStack(options: {
   if (jsonStatePath) await seedConversationKeysFromJsonFile(jsonStatePath, store);
   const outbox = outboxFromStore(inner) ?? new MemoryOutboxStore();
   const spaces = new SpaceRegistry({ wrapSecret: options.stateSecret, store, now: () => new Date() });
+  const lodgeMode = options.lodgeMode ?? isLodgeModeEnabled();
+  const research = options.research ?? createTinyFishResearchService();
+  const debounceMs = options.debounceMs ?? numberEnvironment("COURSESIGNAL_DEBOUNCE_MS", 300);
+  if (!lodgeMode) {
+    const scheduler = createLodgeScheduler({
+      store,
+      outbox,
+      spaces,
+      logger,
+      fetchReadable: options.fetchReadable,
+      runRolesWatch: options.runRolesWatch,
+    });
+    const bridge = new CourseSignalBridge({
+      store,
+      research,
+      logger,
+      debounceMs,
+    });
+    return { store, outbox, logger, bridge, spaces, scheduler, jsonStatePath, lodgeMode };
+  }
+
+  const tinyfish = options.tinyfish ?? createLodgeTinyFishPort();
+  const roles = createTinyFishRolesFinder(tinyfish);
+  const modelClient = options.modelClient ?? createOpenRouterToolClientFromEnvironment();
   const scheduler = createLodgeScheduler({
     store,
     outbox,
     spaces,
     logger,
-    fetchReadable: options.fetchReadable,
-    runRolesWatch: options.runRolesWatch,
+    fetchReadable: options.fetchReadable ?? (async (url) => {
+      try {
+        const page = await tinyfish.fetch(url);
+        return { text: page.text };
+      } catch {
+        return undefined;
+      }
+    }),
+    runRolesWatch: options.runRolesWatch ?? (async (input) => {
+      const listings = await roles.findRoles({
+        query: "internship",
+        city: input.city?.trim() || "",
+      });
+      return listings.map((listing) => ({
+        url: listing.url,
+        company: listing.company,
+        title: listing.title,
+        stillOpen: listing.stillOpen ?? "unverified",
+        reason: listing.matchReason,
+      }));
+    }),
   });
   const bridge = new CourseSignalBridge({
     store,
-    research: createTinyFishResearchService(),
+    research,
     logger,
-    debounceMs: numberEnvironment("COURSESIGNAL_DEBOUNCE_MS", 300),
+    debounceMs,
+    tinyfish,
+    roles,
+    createAgent: modelClient
+      ? (localTools) => new LodgeAgent({
+        client: modelClient,
+        tinyfish,
+        localTools,
+      })
+      : undefined,
   });
-  return { store, outbox, logger, bridge, spaces, scheduler, jsonStatePath };
+  return { store, outbox, logger, bridge, spaces, scheduler, jsonStatePath, lodgeMode };
 }

@@ -143,7 +143,8 @@ export function formatDisagreement(disagreement: SourceDisagreement): string {
 
 /**
  * Dates, times, and still-open status must appear in a cited tool result.
- * Otherwise the reply is hedged. Disagreeing sources are both reported.
+ * Uncited values are stripped so they cannot appear, then the reply is hedged.
+ * Disagreeing sources are both reported from the citations, not from model prose.
  */
 export function groundReply(
   reply: string,
@@ -152,15 +153,18 @@ export function groundReply(
 ): GroundingResult {
   const text = compactWhitespace(reply);
   const hedges: string[] = [];
+  const uncited: ExtractedClaim[] = [];
   for (const claim of extractClaims(text)) {
     if (claimIsCited(claim, citations)) continue;
+    uncited.push(claim);
     const hedge = HEDGE[claim.kind];
     if (!hedges.includes(hedge) && !includesIgnoreCase(text, hedge)) hedges.push(hedge);
   }
 
+  const stripped = stripUncitedClaims(text, uncited);
   const disagreements = findSourceDisagreements(citations);
-  const parts = text ? [text] : [];
-  if (!includesIgnoreCase(text, "I have not picked a winner.")) {
+  const parts = stripped ? [stripped] : [];
+  if (!includesIgnoreCase(stripped, "I have not picked a winner.")) {
     for (const disagreement of disagreements) parts.push(formatDisagreement(disagreement));
   }
   parts.push(...hedges);
@@ -270,6 +274,27 @@ function normalizeHaystack(value: string): string {
 
 function compactWhitespace(value: string): string {
   return value.replace(/\s+/g, " ").trim();
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Drop model-invented date/time/still-open tokens so they never reach the student. */
+function stripUncitedClaims(text: string, claims: ExtractedClaim[]): string {
+  if (claims.length === 0) return text;
+  let next = text;
+  const values = [...new Set(claims.map((claim) => claim.value))]
+    .sort((left, right) => right.length - left.length);
+  for (const value of values) {
+    next = next.replace(new RegExp(escapeRegExp(value), "gi"), " ");
+  }
+  return compactWhitespace(
+    next
+      .replace(/\s+([,.;:!?])/g, "$1")
+      .replace(/^[ ,.;:!?]+|[ ,.;:!?]+$/g, "")
+      .replace(/\s+/g, " "),
+  );
 }
 
 function includesIgnoreCase(haystack: string, needle: string): boolean {

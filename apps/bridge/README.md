@@ -41,6 +41,7 @@ Useful optional variables:
 - `COURSESIGNAL_TIME_ZONE` — receipt display zone; default `Asia/Dubai`.
 - `COURSESIGNAL_HEALTH_PORT` — enables `/healthz` on this port. Falls back to a platform-provided `PORT`; with neither value, HTTP stays disabled.
 - `COURSESIGNAL_HEALTH_HOST` — bind address when health is enabled; default `0.0.0.0`.
+- `LODGE_MODE` — Gemma tool loop (LodgeAgent, TinyFish Search/Fetch/Agent, roles finder, scheduler page-fetch and roles watch). Default **off**. Azure stays on the previous TinyFish research path until this is an explicit true token (`true`, `1`, `yes`, or `on`) in the **bridge** environment, then one replica restart. Do not start a second Photon listener. Requires `TINYFISH_API_KEY`. Gemma calls also need `OPENROUTER_ENABLED=true` and `OPENROUTER_API_KEY`. Keep it off until the iPhone friend loop works.
 - `TINYFISH_AGENT_ENABLED` — must be exactly `true` to permit interactive-page extraction when Fetch cannot read a page; default is disabled.
 - `TINYFISH_AGENT_MAX_STEPS` — interactive-page extraction, clamped to `1..12`; default `8`.
 - `TINYFISH_AGENT_MAX_SECONDS` — interactive-page extraction, clamped to `10..90`; default `45`.

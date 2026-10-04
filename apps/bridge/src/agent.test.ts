@@ -349,6 +349,8 @@ describe("LodgeAgent", () => {
     expect(result.reply).toMatch(/end of week/);
     expect(result.reply).toMatch(/friday/i);
     expect(result.reply).toMatch(/I have not picked a winner/);
+    expect(result.reply).not.toMatch(/monday/i);
+    expect(result.reply).not.toMatch(/18:00/);
   });
 
   it("answers how did you get that from the last-turn trace", async () => {

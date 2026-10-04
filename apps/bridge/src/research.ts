@@ -1,4 +1,5 @@
 import { FetchFormat, TinyFish, type AgentRunResponse } from "@tiny-fish/sdk";
+import type { LodgeAgentPage, LodgeTinyFishPort } from "./agent.js";
 import { createOpenRouterAnswerComposerFromEnvironment } from "./openrouter.js";
 import type {
   EvidenceSource,
@@ -431,6 +432,99 @@ export function createTinyFishResearchService(): TinyFishResearchService {
   });
   const composer = createOpenRouterAnswerComposerFromEnvironment();
   return new TinyFishResearchService({ gateway, agent, composer });
+}
+
+const LODGE_AGENT_OUTPUT_SCHEMA: Record<string, unknown> = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    title: { type: "string" },
+    excerpt: { type: "string" },
+    url: { type: "string" },
+    stillOpen: { type: "string", enum: ["open", "closed", "unverified"] },
+  },
+  required: ["title", "excerpt", "url"],
+};
+
+/**
+ * Lodge TinyFish port. Search / Fetch / Agent only — never TinyBrowser.
+ * Agent goals are whatever LodgeAgent already resolved from a template.
+ */
+export function createLodgeTinyFishPort(options?: {
+  client?: TinyFish;
+  gateway?: TinyFishGateway;
+  timeoutMs?: number;
+}): LodgeTinyFishPort {
+  const timeoutMs = options?.timeoutMs ?? TINYFISH_CALL_TIMEOUT_MS;
+  const gateway = options?.gateway ?? new TinyFishGateway(
+    options?.client ?? createTinyFishSdkClient(),
+    { timeoutMs },
+  );
+  return {
+    async search(query) {
+      return gateway.search(query);
+    },
+    async fetch(url) {
+      const pages = await gateway.fetch([url], "Lodge public page read");
+      const page = pages[0];
+      if (!page) throw new Error("TinyFish Fetch returned no page");
+      return {
+        title: page.title,
+        url: page.url,
+        text: page.text,
+        ...(page.finalUrl ? { finalUrl: page.finalUrl } : {}),
+      };
+    },
+    async agent(input) {
+      const result = await gateway.run({
+        url: input.url,
+        goal: input.goal,
+        maxSteps: 8,
+        maxDurationSeconds: Math.max(10, Math.min(45, Math.round(timeoutMs / 1_000))),
+        outputSchema: LODGE_AGENT_OUTPUT_SCHEMA,
+      });
+      return mapLodgeAgentPage(input.url, result);
+    },
+  };
+}
+
+function createTinyFishSdkClient(): TinyFish {
+  const apiKey = process.env.TINYFISH_API_KEY?.trim();
+  if (!apiKey) throw new Error("TINYFISH_API_KEY is not configured.");
+  return new TinyFish({ apiKey, timeout: 45_000, maxRetries: 0 });
+}
+
+function mapLodgeAgentPage(requestedUrl: string, result: AgentRunResponse): LodgeAgentPage {
+  if (result.status !== "COMPLETED" || !result.result) {
+    throw new Error("TinyFish Agent did not complete");
+  }
+  const payload = result.result as Record<string, unknown>;
+  const title = stringField(payload, "title") || "Untitled source";
+  const excerpt = stringField(payload, "excerpt") || stringField(payload, "summary");
+  if (!excerpt) throw new Error("TinyFish Agent returned no excerpt");
+  const reportedUrl = stringField(payload, "url");
+  let parsedRequested: URL;
+  try {
+    parsedRequested = new URL(requestedUrl);
+  } catch {
+    throw new Error("TinyFish Agent URL is invalid");
+  }
+  const url = reportedUrl && sameOriginHttps(reportedUrl, parsedRequested)
+    ? reportedUrl
+    : parsedRequested.toString();
+  const stillOpen = parseStillOpen(`${stringField(payload, "stillOpen")} ${excerpt}`);
+  return { title: compact(title, 120), url, excerpt: compact(excerpt, 700), stillOpen };
+}
+
+function parseStillOpen(text: string): LodgeAgentPage["stillOpen"] {
+  const hay = text.toLowerCase();
+  if (/\bno longer (?:open|accepting)/.test(hay) || /\b(?:applications?|listing|form|role) (?:are |is )?(?:now )?closed\b/.test(hay)) {
+    return "closed";
+  }
+  if (/\bstill[\s-]open\b/.test(hay) || /\b(?:applications?|listing|form|role) (?:are |is )?(?:now )?open\b/.test(hay)) {
+    return "open";
+  }
+  return "unverified";
 }
 
 /** Backward-compatible local proof entry point. */

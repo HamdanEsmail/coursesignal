@@ -59,6 +59,9 @@ describe("groundReply", () => {
       "I couldn't confirm that time on a checked page.",
     ]));
     expect(result.text).toMatch(/couldn't confirm/i);
+    expect(result.text).not.toMatch(/friday/i);
+    expect(result.text).not.toMatch(/18:00/);
+    expect(result.text).toMatch(/still open/i);
   });
 
   it("reports both sides when sources disagree and does not pick a winner", () => {

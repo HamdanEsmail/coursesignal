@@ -12,7 +12,7 @@ Cloudflare Pages and request-only functions must not host the Photon bridge. Spe
 
 ## Release order
 
-1. Run `npm run check` and keep the real provider flags off.
+1. Run `npm run check` and keep the real provider flags off. `LODGE_MODE` stays off on Azure until the iPhone friend loop is confirmed.
 2. Create a dedicated Supabase project in the intended region.
 3. Apply every SQL file in `supabase/migrations` in filename order.
 4. Put `COURSESIGNAL_STORE=supabase`, `SUPABASE_URL`, and `SUPABASE_SERVICE_ROLE_KEY` only in the bridge host's secret manager.
