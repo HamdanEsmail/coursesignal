@@ -8,9 +8,10 @@ const webRoot = fileURLToPath(new URL("..", import.meta.url));
 describe("Pages Direct Upload host files", () => {
   it("does not rewrite /add.ics onto the SPA HTML fallback", () => {
     const redirects = readFileSync(path.join(webRoot, "public/_redirects"), "utf8");
-    expect(redirects).toMatch(/^\/slip \/index\.html 200$/m);
-    expect(redirects).toMatch(/^\/add \/index\.html 200$/m);
-    expect(redirects).not.toMatch(/\/add\.ics\s+\/index\.html/);
+    expect(redirects).toMatch(/^\/slip \/ 200$/m);
+    expect(redirects).toMatch(/^\/add \/ 200$/m);
+    expect(redirects).not.toMatch(/\/add\.ics\s+/);
+    expect(redirects).not.toMatch(/^\/\* /m);
   });
 
   it("invokes the uploaded worker only for /add.ics", () => {
