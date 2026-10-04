@@ -3,6 +3,7 @@ import {
   LODGE_AGENT_GOAL_TEMPLATES,
   extractStudentUrls,
   guardPublicUrl,
+  lodgeTinyfishFailure,
   type LodgeAgentGoalId,
   type LodgeFetchedPage,
   type LodgeLocalToolHandler,
@@ -255,7 +256,12 @@ async function runTool(
     }
     if (!context.tinyfish) return { memory, content: fail("tinyfish_not_wired") };
     await context.onProgress?.(name === "whats_due" ? "Reading your page…" : "Reading the events page…");
-    const pages = await readPageAndChildren(context.tinyfish, saved.url, kind);
+    let pages: LodgeFetchedPage[];
+    try {
+      pages = await readPageAndChildren(context.tinyfish, saved.url, kind);
+    } catch (error) {
+      return { memory, content: fail(lodgeTinyfishFailure(error)) };
+    }
     const citations = pages.map((page, index) => ({
       traceId: `T${index + 1}`,
       tool: "fetch" as const,
@@ -685,6 +691,12 @@ function namedFailureCopy(error: string): string {
       return "Notebook is empty.";
     case "tinyfish_not_wired":
       return "I can’t read the page this turn. I have not guessed.";
+    case "tinyfish_timeout":
+      return "A TinyFish check timed out. I have not guessed.";
+    case "tinyfish_failure":
+      return "A TinyFish check failed. I have not guessed.";
+    case "page_blocked":
+      return "That page blocked a fetch. I have not guessed. Paste another public events or calendar URL.";
     case "contact_not_allowed":
       return "I draft notes to a role (professor, advisor). I never email or send them.";
     case "invalid_when":

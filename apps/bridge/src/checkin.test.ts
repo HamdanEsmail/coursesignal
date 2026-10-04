@@ -53,10 +53,12 @@ describe("Lodge check-in", () => {
     expect(course.memory.savedLinks?.some((link) => link.kind === "course")).toBe(true);
     state = course.memory;
 
-    const events = applyCheckInAnswer(state, "https://events.example.edu/week", NOW);
+    const events = applyCheckInAnswer(state, "aus.edu/media/events", NOW);
     expect(events.kind).toBe("consumed");
     if (events.kind !== "consumed") return;
-    expect(events.memory.savedLinks?.some((link) => link.kind === "events")).toBe(true);
+    expect(events.memory.savedLinks?.some((link) =>
+      link.kind === "events" && link.url === "https://aus.edu/media/events"
+    )).toBe(true);
     state = events.memory;
 
     const roles = applyCheckInAnswer(state, "internships in Dubai", NOW);

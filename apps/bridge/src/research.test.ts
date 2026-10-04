@@ -225,6 +225,18 @@ describe("TinyFish Fetch Highlights", () => {
     expect(getContents).toHaveBeenCalledOnce();
   });
 
+  it("names a TinyFish bot_blocked empty Fetch instead of returning no pages", async () => {
+    const getContents = vi.fn().mockResolvedValue({
+      results: [],
+      errors: [{ url: "https://www.aus.edu/media/events", error: "bot_blocked" }],
+    });
+    const gateway = new TinyFishGateway(tinyFishClient(getContents));
+    await expect(gateway.fetch(
+      ["https://www.aus.edu/media/events"],
+      "Lodge public page read",
+    )).rejects.toThrow(/bot_blocked/i);
+  });
+
   it("passes the ranked highlight passages—not unrelated full-page text—to the composer", async () => {
     const composer: AnswerComposer = {
       compose: vi.fn(async () => ({ attempted: false })),

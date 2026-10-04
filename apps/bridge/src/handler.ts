@@ -1,5 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { LodgeAgent, extractStudentUrls, type LodgeLocalToolHandler, type LodgeTinyFishPort } from "./agent.js";
+import {
+  LodgeAgent,
+  extractStudentUrls,
+  publicHttpsUrl,
+  type LodgeLocalToolHandler,
+  type LodgeTinyFishPort,
+} from "./agent.js";
 import {
   applyCheckInAnswer,
   beginCheckIn,
@@ -18,6 +24,7 @@ import { createTinyFishResearchService } from "./research.js";
 import { buildSlipUrl } from "./slips.js";
 import { InMemoryBridgeStore } from "./store.js";
 import { formatHowDidYouGetThat } from "./trace.js";
+import type { CitedToolResult } from "./grounding.js";
 import {
   createLodgeTools,
   FIRSTROLE_LINE,
@@ -42,6 +49,8 @@ import {
   type ResearchMode,
   type ResearchResult,
   type ResearchService,
+  type EvidenceSource,
+  type LastTraceMemory,
 } from "./types.js";
 
 const SAFE_FAILURE_REPLY =
@@ -506,7 +515,7 @@ export class CourseSignalBridge {
         previousTrace: memory.lastTrace,
       });
       const latest = await this.#store.getConversation(conversationKey) ?? memory;
-      latest.lastTrace = result.trace;
+      latest.lastTrace = persistableTrace(result.trace);
       latest.lastResearch = {
         query: prompt.slice(0, 1_200),
         topic: deriveTopic(prompt),
@@ -515,15 +524,18 @@ export class CourseSignalBridge {
         endpoints: result.trace.steps
           .map((step) => step.tool)
           .filter((tool): tool is "search" | "fetch" | "agent" => tool === "search" || tool === "fetch" || tool === "agent"),
-        sources: result.grounding.citations.slice(0, 5).map((citation) => ({
-          title: citation.title ?? "Source",
-          url: citation.url ?? "",
-          excerpt: citation.text,
-          endpoint: citation.tool === "other" ? "fetch" : citation.tool,
-        })),
+        sources: evidenceSourcesFromCitations(result.grounding.citations),
       };
       latest.updatedAt = this.#now().toISOString();
-      await this.#store.putConversation(conversationKey, latest);
+      try {
+        await this.#store.putConversation(conversationKey, latest);
+      } catch (error) {
+        this.#logger.error("lodge.memory_persist_failed", {
+          conversationRef: this.#logger.ref(conversationKey),
+          errorType: error instanceof Error ? error.name : typeof error,
+          validationFailed: error instanceof TypeError,
+        });
+      }
       const title = progressTitle(result.trace.steps.at(-1)?.tool) ?? "Lodge slip";
       await progressSlip(port, title);
       await sendLodge(port, lodgeBubbles(result.reply));
@@ -531,6 +543,7 @@ export class CourseSignalBridge {
       this.#logger.error("lodge.agent_failed", {
         conversationRef: this.#logger.ref(conversationKey),
         errorType: error instanceof Error ? error.name : typeof error,
+        validationFailed: error instanceof TypeError,
       });
       await port.send(SAFE_FAILURE_REPLY);
     } finally {
@@ -640,6 +653,8 @@ export class CourseSignalBridge {
       const formatted = formatLodgeToolContent(name, result.content);
       if (formatted.slip) await progressSlip(port, formatted.slip.title, formatted.slip);
       await sendLodge(port, formatted.bubbles, formatted.slip);
+    } catch {
+      await sendLodge(port, ["A TinyFish check failed. I have not guessed."]);
     } finally {
       await bestEffort(port.stopTyping);
     }
@@ -1015,8 +1030,39 @@ function lodgeSafeText(text: string): string {
 function mostlyUrl(text: string): boolean {
   const urls = extractStudentUrls(text);
   if (urls.length === 0) return false;
-  const stripped = text.replace(/https?:\/\/\S+/gi, "").trim();
+  const stripped = text
+    .replace(/https?:\/\/\S+/gi, "")
+    .replace(/\b(?:www\.)?(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}\/\S*/gi, "")
+    .trim();
   return stripped.length < 12;
+}
+
+export function evidenceSourcesFromCitations(citations: CitedToolResult[]): EvidenceSource[] {
+  const sources: EvidenceSource[] = [];
+  for (const citation of citations) {
+    if (citation.tool !== "search" && citation.tool !== "fetch" && citation.tool !== "agent") continue;
+    const url = publicHttpsUrl(citation.url);
+    if (!url) continue;
+    const title = (citation.title ?? "Source").trim().slice(0, 500) || "Source";
+    sources.push({
+      title,
+      url,
+      excerpt: citation.text.slice(0, 10_000),
+      endpoint: citation.tool,
+    });
+    if (sources.length >= 5) break;
+  }
+  return sources;
+}
+
+function persistableTrace(trace: LastTraceMemory): LastTraceMemory {
+  return {
+    ...trace,
+    steps: trace.steps.map((step) => {
+      const url = publicHttpsUrl(step.url);
+      return url ? { ...step, url } : { ...step, url: undefined };
+    }),
+  };
 }
 
 function guessLinkKind(url: string): "course" | "events" | "opportunity" | "other" {

@@ -250,7 +250,7 @@ export class TinyFishGateway implements SearchFetchGateway, AgentRunner {
       // with maxRetries: 0, so this cannot become a provider retry loop.
       response = await this.#client.fetch.getContents(baseRequest);
     }
-    return response.results.map((result) => ({
+    const pages = response.results.map((result) => ({
       title: result.title ?? "Untitled source",
       url: result.url,
       finalUrl: result.final_url ?? undefined,
@@ -264,6 +264,11 @@ export class TinyFishGateway implements SearchFetchGateway, AgentRunner {
           }
         : {}),
     }));
+    if (pages.length === 0) {
+      const code = response.errors?.[0]?.error?.trim();
+      throw new Error(code ? `TinyFish Fetch ${code}` : "TinyFish Fetch returned no page");
+    }
+    return pages;
   }
 
   async run(input: {
@@ -468,10 +473,18 @@ export function createLodgeTinyFishPort(options?: {
       const pages = await gateway.fetch([url], "Lodge public page read");
       const page = pages[0];
       if (!page) throw new Error("TinyFish Fetch returned no page");
+      const text = [page.text, ...(page.highlights ?? []).map((item) => item.text)]
+        .map((part) => part.trim())
+        .filter(Boolean)
+        .join("\n");
+      if (!text) throw new Error("TinyFish Fetch returned no page");
+      if (looksLikeBotWall(`${page.title}\n${text}`)) {
+        throw new Error("TinyFish Fetch bot_blocked");
+      }
       return {
         title: page.title,
         url: page.url,
-        text: page.text,
+        text,
         ...(page.finalUrl ? { finalUrl: page.finalUrl } : {}),
       };
     },
@@ -486,6 +499,12 @@ export function createLodgeTinyFishPort(options?: {
       return mapLodgeAgentPage(input.url, result);
     },
   };
+}
+
+function looksLikeBotWall(value: string): boolean {
+  return /bot_blocked|verify you are (?:not )?a (?:human|bot)|enable javascript and cookies to continue|performing security verification|attention required|just a moment\.{0,3}\s*$/i.test(
+    value,
+  );
 }
 
 function createTinyFishSdkClient(): TinyFish {

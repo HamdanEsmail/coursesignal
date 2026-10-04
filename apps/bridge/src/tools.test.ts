@@ -107,6 +107,33 @@ describe("Lodge tools", () => {
     expect(result.citations?.some((citation) => citation.tool === "fetch")).toBe(true);
   });
 
+  it("names a blocked events-page Fetch instead of throwing", async () => {
+    const store = new InMemoryBridgeStore();
+    await store.putConversation("chat", memory({
+      savedLinks: [{
+        id: "20000000-0000-4000-8000-000000000003",
+        kind: "events",
+        url: "https://www.aus.edu/media/events",
+        createdAt: NOW.toISOString(),
+      }],
+    }));
+    const tools = createLodgeTools({
+      store,
+      conversationKey: "chat",
+      now: () => NOW,
+      tinyfish: tinyfish({
+        fetch: async () => {
+          throw new Error("TinyFish Fetch bot_blocked");
+        },
+      }),
+    });
+    const result = await tools.execute("whats_on", {});
+    const parsed = JSON.parse(result.content) as { ok: boolean; error: string };
+    expect(parsed).toEqual({ ok: false, error: "page_blocked" });
+    expect(formatLodgeToolContent("whats_on", result.content).bubbles[0])
+      .toMatch(/blocked a fetch/i);
+  });
+
   it("walks a form read-only, drafts without sending, and never emails", async () => {
     const store = new InMemoryBridgeStore();
     await store.putConversation("chat", memory());

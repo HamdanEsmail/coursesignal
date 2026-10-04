@@ -131,6 +131,19 @@ describe("URL guard and fetch cache", () => {
       ok: false,
       reason: "not_allowlisted",
     });
+    expect(guardPublicUrl("http://econ.example.edu/syllabus")).toEqual({
+      ok: true,
+      normalized: "https://econ.example.edu/syllabus",
+    });
+    expect(extractStudentUrls("what's on aus.edu/media/events")).toEqual([
+      "https://aus.edu/media/events",
+    ]);
+    const aus = new LodgeUrlAllowlist();
+    expect(aus.add("https://aus.edu/media/events", "student")).toBe(true);
+    expect(aus.decide("https://www.aus.edu/media/events")).toMatchObject({
+      ok: true,
+      source: "student",
+    });
   });
 
   it("reuses an in-turn fetch cache", () => {

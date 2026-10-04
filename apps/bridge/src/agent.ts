@@ -320,15 +320,35 @@ export function guardPublicUrl(value: string):
     return { ok: false, reason: "invalid" };
   }
   if (isPrivateOrLoopback(parsed.hostname)) return { ok: false, reason: "private" };
+  if (parsed.protocol === "http:") parsed.protocol = "https:";
   parsed.hash = "";
   parsed.hostname = parsed.hostname.toLowerCase();
-  if (
-    (parsed.protocol === "https:" && parsed.port === "443") ||
-    (parsed.protocol === "http:" && parsed.port === "80")
-  ) {
-    parsed.port = "";
-  }
+  if (parsed.port === "443" || parsed.port === "80") parsed.port = "";
   return { ok: true, normalized: parsed.toString() };
+}
+
+/** Persistable public https URL, or undefined when the value cannot be stored. */
+export function publicHttpsUrl(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const guarded = guardPublicUrl(value);
+  if (!guarded.ok) return undefined;
+  return guarded.normalized.startsWith("https://") ? guarded.normalized : undefined;
+}
+
+export function publicUrlHostVariants(normalized: string): string[] {
+  try {
+    const parsed = new URL(normalized);
+    const hosts = new Set<string>([parsed.hostname]);
+    if (parsed.hostname.startsWith("www.")) hosts.add(parsed.hostname.slice(4));
+    else if (parsed.hostname.split(".").length === 2) hosts.add(`www.${parsed.hostname}`);
+    return [...hosts].map((hostname) => {
+      const next = new URL(parsed.toString());
+      next.hostname = hostname;
+      return next.toString();
+    });
+  } catch {
+    return [normalized];
+  }
 }
 
 export class LodgeUrlAllowlist {
@@ -337,7 +357,9 @@ export class LodgeUrlAllowlist {
   add(url: string, source: LodgeUrlSource): boolean {
     const guarded = guardPublicUrl(url);
     if (!guarded.ok) return false;
-    if (!this.#urls.has(guarded.normalized)) this.#urls.set(guarded.normalized, source);
+    for (const variant of publicUrlHostVariants(guarded.normalized)) {
+      if (!this.#urls.has(variant)) this.#urls.set(variant, source);
+    }
     return true;
   }
 
@@ -352,12 +374,23 @@ export class LodgeUrlAllowlist {
   }
 }
 
+const SCHEMED_URL = /https?:\/\/[^\s<>"']+/gi;
+const BARE_HOST_PATH =
+  /\b(?:www\.)?(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}\/[^\s<>"']*/gi;
+
 export function extractStudentUrls(text: string): string[] {
-  return (text.match(/https?:\/\/[^\s<>"']+/gi) ?? [])
-    .map((url) => url.replace(/[),.;!?]+$/, ""))
-    .map((url) => guardPublicUrl(url))
-    .filter((result): result is { ok: true; normalized: string } => result.ok)
-    .map((result) => result.normalized);
+  const found = [...(text.match(SCHEMED_URL) ?? []), ...(text.match(BARE_HOST_PATH) ?? [])];
+  const seen = new Set<string>();
+  const urls: string[] = [];
+  for (const raw of found) {
+    const trimmed = raw.replace(/[),.;!?]+$/, "");
+    const candidate = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+    const guarded = guardPublicUrl(candidate);
+    if (!guarded.ok || seen.has(guarded.normalized)) continue;
+    seen.add(guarded.normalized);
+    urls.push(guarded.normalized);
+  }
+  return urls;
 }
 
 export function createFetchCache(): LodgeFetchCache {
@@ -824,7 +857,7 @@ function toolOk(payload: Record<string, unknown>): string {
 }
 
 function clip(value: string, max = TOOL_TEXT_MAX): string {
-  const compact = value.replace(/\s+/g, " ").trim();
+  const compact = String(value ?? "").replace(/\s+/g, " ").trim();
   return compact.length <= max ? compact : compact.slice(0, max).trimEnd();
 }
 
@@ -854,10 +887,15 @@ function isPrivateOrLoopback(hostname: string): boolean {
   return /^(?:\d{1,3}\.){3}\d{1,3}$/.test(host);
 }
 
-function tinyfishError(error: unknown): string {
+export function lodgeTinyfishFailure(error: unknown): string {
   const message = error instanceof Error ? error.message : "";
   if (/timed out/i.test(message)) return "tinyfish_timeout";
+  if (/bot_blocked|page_blocked|unreadable_page/i.test(message)) return "page_blocked";
   return "tinyfish_failure";
+}
+
+function tinyfishError(error: unknown): string {
+  return lodgeTinyfishFailure(error);
 }
 
 async function withTimeout<T>(work: Promise<T>, ms: number, label: string): Promise<T> {

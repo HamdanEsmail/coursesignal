@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { LodgeAgent } from "./agent.js";
-import { CourseSignalBridge } from "./handler.js";
+import { CourseSignalBridge, evidenceSourcesFromCitations } from "./handler.js";
 import { InMemoryBridgeStore } from "./store.js";
 import { FIRSTROLE_URL } from "./tools.js";
 import type {
@@ -482,6 +482,64 @@ describe("Lodge memory, tapbacks, and tools", () => {
     expect((await h.store.getConversation("conversation"))?.notebook?.[0]?.text).toMatch(/Baker 102/);
     expect(h.sent.join("\n")).toMatch(/Noted Baker 102/);
     expect(h.research.research).not.toHaveBeenCalled();
+    assertLodgeVoice(h.sent);
+  });
+
+  it("keeps the LodgeAgent reply when Search citations have no URL", async () => {
+    const client: LodgeModelClient = {
+      complete: vi.fn(async (input) => {
+        const last = input.messages.at(-1);
+        if (last && "role" in last && last.role === "user") {
+          return {
+            ok: true,
+            finishReason: "tool_calls",
+            toolCalls: [toolCall("s1", "tinyfish_search", { query: "AUS events" })],
+          } satisfies OpenRouterToolCompletion;
+        }
+        return {
+          ok: true,
+          finishReason: "stop",
+          content: "TinyFish could not read that events page. Try the AUS academic calendar.",
+          toolCalls: [],
+        } satisfies OpenRouterToolCompletion;
+      }),
+    };
+    const tinyfish = {
+      search: vi.fn(async () => [{
+        title: "Events",
+        url: "https://www.aus.edu/media/events",
+        snippet: "Campus events",
+      }]),
+      fetch: vi.fn(async () => {
+        throw new Error("TinyFish Fetch bot_blocked");
+      }),
+      agent: vi.fn(async (input: { url: string }) => ({
+        title: "page",
+        url: input.url,
+        excerpt: "ok",
+        stillOpen: "unverified" as const,
+      })),
+    };
+    const h = harness({
+      tinyfish,
+      createAgent: (localTools) => new LodgeAgent({
+        client,
+        tinyfish,
+        localTools,
+        now: () => NOW,
+      }),
+    });
+    await start(h);
+    await h.bridge.handle(inbound("any events at AUS aus.edu/media/events", "aus-events"), h.port);
+    expect(h.sent.join("\n")).toMatch(/academic calendar/i);
+    expect(h.sent.join("\n")).not.toMatch(/could not verify that from live sources/i);
+    const sources = (await h.store.getConversation("conversation"))?.lastResearch?.sources ?? [];
+    expect(sources.every((source) => source.url.startsWith("https://"))).toBe(true);
+    expect(evidenceSourcesFromCitations([{
+      traceId: "T1",
+      tool: "search",
+      text: "Campus events",
+    }])).toEqual([]);
     assertLodgeVoice(h.sent);
   });
 });
