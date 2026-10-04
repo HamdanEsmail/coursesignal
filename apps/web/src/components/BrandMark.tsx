@@ -1,22 +1,14 @@
-import { useState } from "react";
-
 type BrandMarkProps = {
   href?: string;
 };
 
 export function BrandMark({ href = "/#arrive" }: BrandMarkProps) {
-  const [src, setSrc] = useState("/logo.png");
-
   return (
     <a className="brand-mark" href={href}>
-      <img
-        className="brand-mark__asset"
-        src={src}
-        alt=""
-        onError={() => {
-          setSrc((current) => (current === "/logo.png" ? "/logo.svg" : current));
-        }}
-      />
+      <picture>
+        <source srcSet="/logo.webp" type="image/webp" />
+        <img className="brand-mark__asset" src="/logo.png" alt="" width="36" height="36" decoding="async" />
+      </picture>
       <span className="brand-mark__word">Lodge</span>
     </a>
   );

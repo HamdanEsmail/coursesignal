@@ -264,14 +264,23 @@ export function buildTimeline(beats: DayBeat[] = dayBeats): TimedLine[] {
   return timed;
 }
 
-export function phoneFace(progress: number, beats: DayBeat[] = dayBeats): PhoneFace {
+export function phoneFace(
+  progress: number,
+  beats: DayBeat[] = dayBeats,
+  timeline: TimedLine[] = buildTimeline(beats),
+): PhoneFace {
   const beat = beatAt(progress, beats);
   if (beat.face === "sleep") return "sleep";
   if (beat.face === "lock") {
-    const first = buildTimeline(beats).find((line) => line.beatId === beat.id);
+    const first = timeline.find((line) => line.beatId === beat.id);
     if (!first || progress < first.at) return "lock";
   }
   return "messages";
+}
+
+export function playbackKey(progress: number, timeline: TimedLine[] = buildTimeline()): string {
+  const ids = [...visibleLineIds(progress, timeline)].join(",");
+  return `${beatIndex(progress)}:${phoneFace(progress, dayBeats, timeline)}:${ids}`;
 }
 
 export function lockNotes(beats: DayBeat[] = dayBeats): string[] {

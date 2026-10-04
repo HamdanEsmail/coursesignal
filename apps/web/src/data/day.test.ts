@@ -7,6 +7,7 @@ import {
   dayBeats,
   marketingCorpus,
   phoneFace,
+  playbackKey,
   visibleLineIds,
 } from "./day.js";
 
@@ -59,5 +60,8 @@ describe("A day with Lodge", () => {
     expect(visibleLineIds(beatJumpProgress(2), timeline).has("m-save")).toBe(true);
     expect(beatAt(beatJumpProgress(2)).id).toBe("save");
     expect(dayBeats.every((beat) => beat.rail.length > 0 && beat.cue.length > 12)).toBe(true);
+    const mid = playbackKey(0.2, timeline);
+    expect(playbackKey(0.201, timeline)).toBe(mid);
+    expect(playbackKey(0.2, timeline)).not.toBe(playbackKey(0.8, timeline));
   });
 });

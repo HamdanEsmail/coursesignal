@@ -5,10 +5,14 @@ import {
   beatEndProgress,
   beatIndex,
   beatStartProgress,
+  buildTimeline,
   dayBeats,
+  playbackKey,
 } from "../data/day.js";
 import { prefersReducedMotion } from "../lib/motion.js";
 import { DayPhone } from "./DayPhone.js";
+
+const timeline = buildTimeline();
 
 export function DayStage() {
   const [progress, setProgress] = useState(0);
@@ -30,9 +34,15 @@ export function DayStage() {
     }
     const started = performance.now();
     let frame = 0;
+    let lastKey = playbackKey(range.from, timeline);
     const tick = (now: number) => {
       const t = Math.min(1, (now - started) / CHAPTER_PLAY_MS);
-      setProgress(range.from + (range.to - range.from) * t);
+      const next = range.from + (range.to - range.from) * t;
+      const key = playbackKey(next, timeline);
+      if (key !== lastKey || t === 1) {
+        lastKey = key;
+        setProgress(next);
+      }
       if (t < 1) frame = window.requestAnimationFrame(tick);
       else setPlaying(false);
     };

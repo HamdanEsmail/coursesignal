@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import {
   beatAt,
   buildTimeline,
+  dayBeats,
   firstRoleUrl,
   lockNotes,
   phoneFace,
@@ -23,17 +24,18 @@ type DayPhoneProps = {
 export function DayPhone({ progress, extraHearts, onTap, onOpenLock }: DayPhoneProps) {
   const innerRef = useRef<HTMLDivElement>(null);
   const beat = beatAt(progress);
-  const face = phoneFace(progress);
+  const face = phoneFace(progress, dayBeats, timeline);
   const visible = visibleLineIds(progress, timeline);
   const looking = timeline.find((line) => line.kind === "looking" && visible.has(line.id));
   const island = looking?.kind === "looking" ? looking.text : "";
   const open = face === "messages";
 
+  const visibleCount = visible.size;
   useEffect(() => {
     const inner = innerRef.current;
     if (!inner) return;
     inner.scrollTop = inner.scrollHeight;
-  }, [progress, extraHearts, face]);
+  }, [visibleCount, extraHearts, face]);
 
   return (
     <figure className="handset-wrap">

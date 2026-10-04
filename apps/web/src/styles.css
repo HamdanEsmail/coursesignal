@@ -83,7 +83,10 @@ a {
   min-height: 100vh;
   background:
     linear-gradient(180deg, rgb(28 20 24 / 0.62) 0%, var(--ember-night) 42%),
-    url("/hero.jpg") 50% 0 / min(92rem, 160%) auto no-repeat;
+    url("/hero.jpg") 50% 0 / min(72rem, 140%) auto no-repeat;
+  background-image:
+    linear-gradient(180deg, rgb(28 20 24 / 0.62) 0%, var(--ember-night) 42%),
+    image-set(url("/hero.webp") type("image/webp"), url("/hero.jpg") type("image/jpeg"));
 }
 
 .shell {
@@ -341,7 +344,7 @@ a {
   position: relative;
   height: 100%;
   overflow: hidden;
-  isolation: isolate;
+  contain: layout style;
   border-radius: calc(var(--u) * 42);
   background: #fff;
 }
@@ -490,6 +493,9 @@ a {
   background:
     linear-gradient(180deg, rgb(28 20 24 / 0.28), rgb(18 13 16 / 0.22)),
     url("/thread.jpg") center / cover no-repeat;
+  background-image:
+    linear-gradient(180deg, rgb(28 20 24 / 0.28), rgb(18 13 16 / 0.22)),
+    image-set(url("/thread.webp") type("image/webp"), url("/thread.jpg") type("image/jpeg"));
 }
 
 .lock__dim {
@@ -556,7 +562,7 @@ a {
   font: inherit;
   text-align: left;
   cursor: pointer;
-  backdrop-filter: blur(20px) saturate(1.6);
+  backdrop-filter: blur(8px);
 }
 
 .lock[data-sleep="true"] .lock__notes {
@@ -611,9 +617,8 @@ a {
   width: calc(var(--u) * 50);
   height: calc(var(--u) * 50);
   border-radius: 50%;
-  background: rgb(0 0 0 / 0.28);
+  background: rgb(0 0 0 / 0.34);
   color: #fff;
-  backdrop-filter: blur(12px);
 }
 
 .lock__tools svg {
@@ -640,7 +645,7 @@ a {
   height: calc(var(--u) * 126);
   border-bottom: calc(var(--u) * 0.6) solid rgb(0 0 0 / 0.14);
   background: rgb(246 246 246 / 0.86);
-  backdrop-filter: blur(20px) saturate(1.8);
+  backdrop-filter: blur(8px);
 }
 
 .imsg__back,
@@ -949,8 +954,7 @@ a {
   align-items: flex-start;
   height: calc(var(--u) * 88);
   padding: calc(var(--u) * 8) calc(var(--u) * 12) 0;
-  background: rgb(255 255 255 / 0.92);
-  backdrop-filter: blur(20px);
+  background: #fff;
 }
 
 .imsg__plus {
@@ -1136,6 +1140,12 @@ a {
   margin: 0.25em 0 0;
 }
 
+.band--film,
+.band--judge {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 36rem;
+}
+
 .band--film {
   background:
     radial-gradient(ellipse 50% 70% at 80% 40%, rgb(240 180 90 / 0.1), transparent 55%),
@@ -1216,30 +1226,61 @@ a {
 }
 
 .moment {
+  position: relative;
   display: grid;
   align-content: start;
   gap: 10px;
   min-height: 22rem;
   padding: 20px 18px 18px;
+  overflow: hidden;
+}
+
+.moment__wash {
+  position: absolute;
+  inset: 0;
+}
+
+.moment__wash img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.moment--remind,
+.moment--roles {
+  background: #1a1216;
 }
 
 .moment--remind {
-  background:
-    linear-gradient(180deg, rgb(22 17 22 / 0.78), rgb(22 17 22 / 0.9)),
-    url("/dusk.jpg") center / cover no-repeat;
   box-shadow: inset 0 0 0 1px rgb(212 176 122 / 0.18);
+}
+
+.moment--remind::after,
+.moment--roles::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.moment--remind::after {
+  background: linear-gradient(180deg, rgb(22 17 22 / 0.78), rgb(22 17 22 / 0.9));
+}
+
+.moment--roles::after {
+  background: linear-gradient(180deg, rgb(28 20 24 / 0.72), rgb(36 24 32 / 0.88));
+}
+
+.moment > :not(.moment__wash) {
+  position: relative;
+  z-index: 1;
 }
 
 .moment--week {
   background: var(--slip);
   color: var(--ink);
   box-shadow: 0 18px 28px rgb(8 6 8 / 0.3);
-}
-
-.moment--roles {
-  background:
-    linear-gradient(180deg, rgb(28 20 24 / 0.72), rgb(36 24 32 / 0.88)),
-    url("/roles.jpg") center / cover no-repeat;
 }
 
 .moment h3 {
@@ -1596,11 +1637,18 @@ kbd,
   max-width: 46rem;
   margin: 0 auto;
   padding: 28px 32px 36px;
+  background: var(--slip);
+  color: var(--ink);
+  box-shadow: 18px 22px 40px rgb(8 6 8 / 0.38);
+}
+
+.hosted-slip .paper-sheet {
   background:
     linear-gradient(180deg, rgb(246 234 208 / 0.88), rgb(246 234 208 / 0.94)),
     url("/slip.jpg") center / cover no-repeat;
-  color: var(--ink);
-  box-shadow: 18px 22px 40px rgb(8 6 8 / 0.38);
+  background-image:
+    linear-gradient(180deg, rgb(246 234 208 / 0.88), rgb(246 234 208 / 0.94)),
+    image-set(url("/slip.webp") type("image/webp"), url("/slip.jpg") type("image/jpeg"));
 }
 
 .paper-sheet:focus {
@@ -1673,7 +1721,11 @@ kbd,
     scroll-behavior: auto;
   }
 
+  .lock,
+  .handset__clock,
+  .handset__home,
   .imsg__bubble--type i {
+    transition: none;
     animation: none;
   }
 }

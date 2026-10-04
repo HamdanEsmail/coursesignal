@@ -101,6 +101,10 @@ export function App() {
             <h2 id="moments-title">What actually happens.</h2>
             <div className="moments">
               <article className="moment moment--remind">
+                <picture className="moment__wash">
+                  <source srcSet="/dusk.webp" type="image/webp" />
+                  <img src="/dusk.jpg" alt="" width="640" height="800" loading="lazy" decoding="async" />
+                </picture>
                 <h3>Lodge texts first</h3>
                 <p className="moment__you">remind me Friday 5</p>
                 <p className="moment__lodge">
@@ -124,6 +128,10 @@ export function App() {
                 <EventLinks events={dueWeekFixture.events} />
               </article>
               <article className="moment moment--roles">
+                <picture className="moment__wash">
+                  <source srcSet="/roles.webp" type="image/webp" />
+                  <img src="/roles.jpg" alt="" width="640" height="640" loading="lazy" decoding="async" />
+                </picture>
                 <h3>A few internships</h3>
                 <ul className="role-board">
                   {rolesFixture.roles?.map((listing) => (

@@ -14,7 +14,7 @@ Lodge never logs into an LMS, types into a form, applies, or adds a calendar eve
 
 ## Companion website
 
-`apps/web` is the dusk landing, the living iPhone day (`DayPhone`), hosted slips (`/slip`), the approve-the-week page (`/add`), and the calendar file (`/add.ics`). Technical architecture does not belong on the landing page. Generated dusk art is wallpaper, hero, mark, and atmosphere — never a replacement for iPhone or Messages chrome.
+`apps/web` is the dusk landing, the living iPhone day (`DayPhone`), hosted slips (`/slip`), the approve-the-week page (`/add`), and the calendar file (`/add.ics`). Technical architecture does not belong on the landing page. Generated dusk art is wallpaper, hero, mark, and atmosphere — compressed WebP/JPEG, never a 4K dump, and never a replacement for iPhone or Messages chrome. The day-sim plays one chapter at a time with `requestAnimationFrame`, commits only when the thread actually changes, and cancels on unmount.
 
 `public/_redirects` must stay exactly:
 
