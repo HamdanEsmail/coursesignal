@@ -110,7 +110,7 @@ export function parseLodgeEventQuery(query: string | URLSearchParams): CalendarE
     if (!fields.start || !fields.end) {
       throw new Error(`Lodge event ${index} is missing start or end`);
     }
-    return pickCalendarEvent(fields);
+    return pickCalendarEvent({ ...fields, start: fields.start, end: fields.end });
   });
 }
 
@@ -150,7 +150,7 @@ export function buildIcsBody(
   input: CalendarEvent | readonly CalendarEvent[],
   options: { now?: Date } = {},
 ): string {
-  const events = Array.isArray(input) ? requireWeekEvents(input) : [pickCalendarEvent(input)];
+  const events = "title" in input ? [pickCalendarEvent(input)] : requireWeekEvents(input);
   const stamp = compactUtc((options.now ?? new Date()).toISOString());
   const lines = [
     "BEGIN:VCALENDAR",
@@ -305,7 +305,11 @@ function foldIcsLine(line: string): string {
   let limit = 75;
   while (offset < bytes.length) {
     let end = Math.min(offset + limit, bytes.length);
-    while (end > offset && (bytes[end] & 0b1100_0000) === 0b1000_0000) end -= 1;
+    while (end > offset) {
+      const byte = bytes[end];
+      if (byte === undefined || (byte & 0b1100_0000) !== 0b1000_0000) break;
+      end -= 1;
+    }
     parts.push(bytes.subarray(offset, end).toString("utf8"));
     offset = end;
     limit = 74;
