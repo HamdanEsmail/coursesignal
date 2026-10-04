@@ -1,60 +1,112 @@
 import { randomUUID } from "node:crypto";
+import {
+  LodgeAgent,
+  extractStudentUrls,
+  publicHttpsUrl,
+  type LodgeLocalToolHandler,
+  type LodgeTinyFishPort,
+} from "./agent.js";
+import {
+  applyCheckInAnswer,
+  beginCheckIn,
+  checkInPrompt,
+  firstPublicUrl,
+  isCheckInOpen,
+  isSkipText,
+  looksLikeCheckInInterrupt,
+  saveLink,
+} from "./checkin.js";
 import { isControlCommand, parseCommand, type ParsedCommand } from "./commands.js";
 import { ConversationCoordinator } from "./coordinator.js";
 import { silentLogger } from "./logger.js";
-import { compact, createTinyFishResearchService } from "./research.js";
+import { markLastOpportunityApplied, markReminderDone, showNotes } from "./notebook.js";
+import { createTinyFishResearchService } from "./research.js";
+import { buildSlipUrl } from "./slips.js";
 import { InMemoryBridgeStore } from "./store.js";
-import type {
-  BridgeLogger,
-  BridgeStore,
-  ConversationMemory,
-  ConversationPort,
-  InboundEnvelope,
-  HandleDisposition,
-  ResearchMode,
-  ResearchResult,
-  ResearchService,
+import { formatHowDidYouGetThat } from "./trace.js";
+import type { CitedToolResult } from "./grounding.js";
+import {
+  createLodgeTools,
+  FIRSTROLE_LINE,
+  FIRSTROLE_URL,
+  formatLodgeToolContent,
+  parseReminderWhen,
+  type LodgeRolesFinder,
+} from "./tools.js";
+import {
+  LODGE_CONSENT_VERSION,
+  LODGE_DEFAULT_QUIET_END,
+  LODGE_DEFAULT_QUIET_START,
+  LODGE_DEFAULT_TIMEZONE,
+  type BridgeLogger,
+  type BridgeStore,
+  type ConversationMemory,
+  type ConversationPort,
+  type ConversationReaction,
+  type HandleDisposition,
+  type InboundContent,
+  type InboundEnvelope,
+  type ResearchMode,
+  type ResearchResult,
+  type ResearchService,
+  type EvidenceSource,
+  type LastTraceMemory,
 } from "./types.js";
 
 const SAFE_FAILURE_REPLY =
-  "I could not verify that request from live sources. I have not guessed or started another paid run. Please try again later.";
-const CONSENT_VERSION = 2 as const;
+  "I could not verify that from live sources. I have not guessed or started another paid run. Try again in a bit.";
+const CONSENT_VERSION = LODGE_CONSENT_VERSION;
 const CONSENT_PROMPT = [
-  "Welcome to CourseSignal — an evidence-first student-life copilot in iMessage.",
+  "Welcome to Lodge — a college-lodge friend in iMessage.",
   "",
-  "Before I research or remember a course, reply START. TinyFish checks public web sources. If the optional OpenRouter answer composer is enabled, it receives only your current sanitized question and short TinyFish evidence—not your phone number, prior chat, or saved course name.",
+  "Before I look anything up or remember a page, reply START. TinyFish checks public web pages (Search, Fetch, and sometimes a read-only Agent). If Gemma is on, it chooses those tools. It does not receive your phone number.",
   "",
-  "I keep context separate for this chat and never submit coursework, purchase, book, or contact anyone.",
+  "I never apply, sign in, email anyone, or submit a form.",
   "",
   "Please don’t send passwords, student IDs, private LMS links, or confidential documents.",
 ].join("\n");
 const STARTED_REPLY = [
-  "CourseSignal is ready.",
+  "Lodge is ready. Optional check-in — skip anytime.",
   "",
-  "Ask about a course concept, campus service or event, textbook, scholarship, opportunity, or deadline.",
-  "",
-  "Optional: text COURSE STAT 210 to keep course context. After a result, reply SOURCES, PLAN, or WATCH.",
-  "",
-  "HELP shows every command. FORGET lets you erase this chat’s memory.",
+  checkInPrompt("school"),
 ].join("\n");
 const HELP_REPLY = [
-  "COURSESIGNAL COMMANDS",
-  "Ask naturally — concepts, campus life, books, scholarships, opportunities, or deadlines",
-  "COURSE <name> — optionally remember and select a course",
-  "COURSE LIST — show remembered courses",
-  "COURSE USE <name> — switch context",
-  "COURSE REMOVE <name> — remove one course",
-  "SOURCES — show the latest evidence receipt",
-  "PLAN [goal] — build a source-linked study plan",
-  "WATCH [source or topic] — opt into a change watch",
-  "STOP — pause every proactive watch",
-  "MEMORY — show what this chat remembers",
-  "FORGET — begin full deletion",
+  "LODGE",
+  "Ask in ordinary words — deadlines, events, a public page, a poster photo, internships in a city.",
+  "START — begin. skip — skip a check-in question.",
+  "what’s due / what’s on — read a saved course or events page.",
+  "remind me in 5 minutes — Lodge texts first after you confirm. 👍 done.",
+  "note that … / show notes — notebook (cap 30). ❤️ pins the last list.",
+  "how did you get that? — the ledger.",
+  "FORGET — erase this chat. STOP — pause watches.",
+  `Roles: 1–3 public listings, never an application. ${FIRSTROLE_LINE}`,
+  "If Lodge could not reopen this chat after a restart, it will say so — scheduled texts wait until you are back.",
 ].join("\n");
+const COURSE_PAGE_HINT =
+  "Lodge remembers public course pages, not course codes. Paste a syllabus URL, or skip check-in.";
+const PHOTO_UNWIRED =
+  "I saw a photo. I can save a note or add it to the calendar once I can read images — or tell me the time and place now.";
+const REACTIONS = new Set<string>(["love", "like", "dislike", "question"]);
 
 type WorkItem = {
   envelope: InboundEnvelope;
   port: ConversationPort;
+};
+
+export type LodgeVisionHandler = {
+  describe(input: { mimeType: string; body: unknown }): Promise<string | undefined>;
+};
+
+export type LodgeBridgeOptions = {
+  store: BridgeStore;
+  research: ResearchService;
+  logger?: BridgeLogger;
+  debounceMs?: number;
+  now?: () => Date;
+  tinyfish?: LodgeTinyFishPort;
+  createAgent?: (localTools: LodgeLocalToolHandler) => LodgeAgent;
+  vision?: LodgeVisionHandler;
+  roles?: LodgeRolesFinder;
 };
 
 export class CourseSignalBridge {
@@ -63,18 +115,20 @@ export class CourseSignalBridge {
   readonly #logger: BridgeLogger;
   readonly #now: () => Date;
   readonly #coordinator: ConversationCoordinator<WorkItem>;
+  readonly #tinyfish?: LodgeTinyFishPort;
+  readonly #createAgent?: (localTools: LodgeLocalToolHandler) => LodgeAgent;
+  readonly #vision?: LodgeVisionHandler;
+  readonly #roles?: LodgeRolesFinder;
 
-  constructor(options: {
-    store: BridgeStore;
-    research: ResearchService;
-    logger?: BridgeLogger;
-    debounceMs?: number;
-    now?: () => Date;
-  }) {
+  constructor(options: LodgeBridgeOptions) {
     this.#store = options.store;
     this.#research = options.research;
     this.#logger = options.logger ?? silentLogger;
     this.#now = options.now ?? (() => new Date());
+    this.#tinyfish = options.tinyfish;
+    this.#createAgent = options.createAgent;
+    this.#vision = options.vision;
+    this.#roles = options.roles;
     this.#coordinator = new ConversationCoordinator({
       debounceMs: options.debounceMs,
       consume: (conversationKey, items) => this.#consume(conversationKey, items),
@@ -93,7 +147,7 @@ export class CourseSignalBridge {
         eventRef,
         errorType: error instanceof Error ? error.name : typeof error,
       });
-      await port.send("CourseSignal is temporarily unable to protect this message from duplicates, so I did not run it. Please try again shortly.");
+      await port.send("Lodge is temporarily unable to protect this message from duplicates, so I did not run it. Please try again shortly.");
       return "state-unavailable";
     }
 
@@ -136,6 +190,7 @@ export class CourseSignalBridge {
     );
     const canMerge =
       hasCurrentConsent(memory) &&
+      !isCheckInOpen(memory) &&
       textItems.length === items.length &&
       textItems.length > 1 &&
       textItems.every(({ envelope }) => !isControlCommand(parseCommand(envelope.content.text)));
@@ -155,7 +210,7 @@ export class CourseSignalBridge {
     for (const item of items) {
       try {
         if (item.envelope.content.type !== "text") {
-          await this.#processUnsupported(conversationKey, item.envelope.content.kind, item.port);
+          await this.#processNonText(conversationKey, item.envelope.content, item.port);
           continue;
         }
         await this.#processText(conversationKey, item.envelope.content.text, item.port);
@@ -169,9 +224,9 @@ export class CourseSignalBridge {
     }
   }
 
-  async #processUnsupported(
+  async #processNonText(
     conversationKey: string,
-    kind: string,
+    content: InboundContent,
     port: ConversationPort,
   ): Promise<void> {
     const memory = await this.#store.getConversation(conversationKey);
@@ -179,9 +234,90 @@ export class CourseSignalBridge {
       await port.send(CONSENT_PROMPT);
       return;
     }
+    if (content.type === "unsupported" && REACTIONS.has(content.kind)) {
+      await this.#processReaction(conversationKey, memory, content.kind as ConversationReaction, port);
+      return;
+    }
+    if (content.type === "unsupported" && content.kind === "image") {
+      await this.#processPhoto(conversationKey, memory, content, port);
+      return;
+    }
+    if (content.type === "unsupported" && content.kind === "poll_vote") {
+      const option = "option" in content && typeof content.option === "string" ? content.option : "";
+      if (option) {
+        await this.#processText(conversationKey, option, port);
+        return;
+      }
+    }
     await port.send(
-      `I received ${safeKind(kind)}, but this build only sends public web research from text and links. Add a short text question; I won’t upload or analyze the attachment.`,
+      `I received ${safeKind(content.type === "unsupported" ? content.kind : "attachment")}, but Lodge works from text, links, photos, and a small set of tapbacks.`,
     );
+  }
+
+  async #processPhoto(
+    conversationKey: string,
+    memory: ConversationMemory,
+    content: InboundContent,
+    port: ConversationPort,
+  ): Promise<void> {
+    const image = content as InboundContent & { mimeType?: string; read?: () => Promise<unknown> };
+    if (!this.#vision || !image.read) {
+      await sendLodge(port, [PHOTO_UNWIRED]);
+      return;
+    }
+    let body: unknown;
+    try {
+      body = await image.read();
+    } catch {
+      await sendLodge(port, [PHOTO_UNWIRED]);
+      return;
+    }
+    const described = await this.#vision.describe({ mimeType: image.mimeType ?? "image/*", body });
+    if (!described) {
+      await sendLodge(port, [PHOTO_UNWIRED]);
+      return;
+    }
+    memory.pendingRememberPage = {
+      url: "https://coursesignal-bzb.pages.dev/slip?title=Photo",
+      title: described.slice(0, 160),
+      excerpt: described.slice(0, 400),
+      offeredAt: this.#now().toISOString(),
+      kind: "other",
+    };
+    memory.updatedAt = this.#now().toISOString();
+    await this.#store.putConversation(conversationKey, memory);
+    await sendLodge(port, [
+      described.slice(0, 400),
+      "I have not stored the image. Reply note that … or send the time and place to save a calendar slip.",
+    ]);
+  }
+
+  async #processReaction(
+    conversationKey: string,
+    memory: ConversationMemory,
+    reaction: ConversationReaction,
+    port: ConversationPort,
+  ): Promise<void> {
+    const tools = this.#tools(conversationKey, port);
+    if (reaction === "love") {
+      await this.#emitTool(port, tools, "notebook", { action: "pin", text: null });
+      return;
+    }
+    if (reaction === "like") {
+      const done = markReminderDone(memory, this.#now());
+      if (done.ok) {
+        await this.#store.putConversation(conversationKey, done.memory);
+        await sendLodge(port, [`Done: ${done.reminder.text}.`]);
+        return;
+      }
+      await sendLodge(port, ["Nothing waiting on a 👍."]);
+      return;
+    }
+    if (reaction === "dislike") {
+      await this.#pauseWatches(conversationKey, memory, port);
+      return;
+    }
+    await sendLodge(port, [memory.lastTrace ? formatHowDidYouGetThat(memory.lastTrace) : "I have not checked a live page this turn."]);
   }
 
   async #processText(
@@ -191,7 +327,7 @@ export class CourseSignalBridge {
   ): Promise<void> {
     const text = rawText.trim();
     if (!text) {
-      await port.send("Send a course question, public link, or HELP for commands.");
+      await port.send("Send a question, a public link, or HELP.");
       return;
     }
 
@@ -204,7 +340,7 @@ export class CourseSignalBridge {
       await port.send(
         command.action === "ping"
           ? "pong"
-          : "CourseSignal’s message bridge is reachable. Send ECHO <words> for a local round-trip or START to begin.",
+          : "Lodge’s message bridge is reachable. Send ECHO <words> for a local round-trip or START to begin.",
       );
       return;
     }
@@ -214,55 +350,204 @@ export class CourseSignalBridge {
         await port.send(CONSENT_PROMPT);
         return;
       }
-      memory = memory ?? emptyMemory(this.#now());
+      memory = beginCheckIn(emptyMemory(this.#now()), this.#now());
       memory.consentedAt = this.#now().toISOString();
       memory.consentVersion = CONSENT_VERSION;
-      memory.updatedAt = this.#now().toISOString();
       await this.#store.putConversation(conversationKey, memory);
       await port.send(STARTED_REPLY);
       return;
     }
 
+    if (command.kind === "start") {
+      memory = beginCheckIn(memory, this.#now());
+      memory.consentedAt = this.#now().toISOString();
+      memory.consentVersion = CONSENT_VERSION;
+      await this.#store.putConversation(conversationKey, memory);
+      await port.send(STARTED_REPLY);
+      return;
+    }
+
+    if (isCheckInOpen(memory) && shouldApplyCheckIn(command.kind, text, memory.checkInStep ?? "done")) {
+      const result = applyCheckInAnswer(memory, text, this.#now());
+      if (result.kind === "consumed") {
+        await this.#store.putConversation(conversationKey, result.memory);
+        if (command.kind === "find_roles" || command.kind === "whats_due" || command.kind === "whats_on") {
+          memory = result.memory;
+        } else {
+          await sendLodge(port, [result.reply]);
+          return;
+        }
+      } else {
+        memory = result.memory;
+        await this.#store.putConversation(conversationKey, memory);
+        if (isSkipText(text)) {
+          await sendLodge(port, [checkInPrompt(memory.checkInStep ?? "done")]);
+          return;
+        }
+      }
+    }
+
     switch (command.kind) {
-      case "start":
-        await port.send(STARTED_REPLY);
-        return;
       case "help":
         await port.send(HELP_REPLY);
         return;
       case "sources":
-        await port.send(formatSources(memory));
+      case "show_trace":
+        await sendLodge(port, [
+          memory.lastTrace ? formatHowDidYouGetThat(memory.lastTrace) : "There isn’t a ledger yet. Ask something I can look up first.",
+        ]);
         return;
       case "memory":
-        await port.send(formatMemory(memory));
+      case "show_notes":
+        await sendLodge(port, [formatMemory(memory)]);
         return;
       case "course":
-        await this.#handleCourse(conversationKey, memory, command, port);
+        await sendLodge(port, [COURSE_PAGE_HINT]);
         return;
       case "watch":
         await this.#handleWatch(conversationKey, memory, command.target, port);
         return;
       case "stop":
-        memory.watches = memory.watches.map((watch) => ({ ...watch, active: false }));
-        memory.updatedAt = this.#now().toISOString();
-        await this.#store.putConversation(conversationKey, memory);
-        await port.send("All proactive watches are paused. You can still ask questions here; send WATCH when you want to opt in again.");
+        await this.#pauseWatches(conversationKey, memory, port);
         return;
       case "forget":
         await this.#handleForget(conversationKey, memory, command.action, port);
         return;
-      case "plan": {
-        const prompt = command.prompt || memory.lastResearch?.query || "review the active course topic";
-        if (!command.prompt && !memory.lastResearch && !memory.activeCourse) {
-          await port.send("Tell me the goal after PLAN, for example: PLAN prepare for Thursday’s probability quiz.");
-          return;
-        }
-        await this.#runResearch(conversationKey, memory, prompt, "plan", port);
+      case "forget_note": {
+        const tools = this.#tools(conversationKey, port);
+        await this.#emitTool(port, tools, "notebook", { action: "forget", text: command.text || null });
         return;
       }
-      case "research":
-        await this.#runResearch(conversationKey, memory, command.prompt, "answer", port);
+      case "note": {
+        const tools = this.#tools(conversationKey, port);
+        await this.#emitTool(port, tools, "notebook", { action: "note", text: command.text || null });
         return;
+      }
+      case "remind": {
+        const tools = this.#tools(conversationKey, port);
+        await this.#emitTool(port, tools, "remind_me", { text: command.text, when: command.when });
+        return;
+      }
+      case "snooze":
+        await this.#handleSnooze(conversationKey, memory, command.duration, port);
+        return;
+      case "whats_due":
+        await this.#emitTool(port, this.#tools(conversationKey, port), "whats_due", {});
+        return;
+      case "whats_on":
+        await this.#emitTool(port, this.#tools(conversationKey, port), "whats_on", {});
+        return;
+      case "applied": {
+        const applied = markLastOpportunityApplied(memory, this.#now());
+        if (!applied.ok) {
+          await sendLodge(port, ["I don’t have a pinned opening to mark. Heart a listing first."]);
+          return;
+        }
+        await this.#store.putConversation(conversationKey, applied.memory);
+        await sendLodge(port, [`Marked applied: ${applied.note.text}. ${FIRSTROLE_LINE}`]);
+        return;
+      }
+      case "save":
+        await this.#handleSave(conversationKey, memory, port);
+        return;
+      case "confirm":
+        await this.#handleConfirm(conversationKey, memory, port);
+        return;
+      case "find_roles":
+        await this.#emitTool(port, this.#tools(conversationKey, port), "find_roles", {
+          query: command.query,
+          city: command.city || memory.rolesCity || "",
+        });
+        return;
+      case "plan": {
+        if (!command.prompt) {
+          await this.#emitTool(port, this.#tools(conversationKey, port), "plan_week", {});
+          return;
+        }
+        await this.#runTurn(conversationKey, memory, command.prompt, "plan", port);
+        return;
+      }
+      case "skip":
+        await sendLodge(port, ["Nothing to skip."]);
+        return;
+      case "research":
+        await this.#runTurn(conversationKey, memory, command.prompt, "answer", port);
+        return;
+    }
+  }
+
+  async #runTurn(
+    conversationKey: string,
+    memory: ConversationMemory,
+    prompt: string,
+    mode: ResearchMode,
+    port: ConversationPort,
+  ): Promise<void> {
+    const urlOnly = mostlyUrl(prompt);
+    if (urlOnly) {
+      await this.#offerPastedUrl(conversationKey, memory, prompt, port);
+      return;
+    }
+
+    const tools = this.#tools(conversationKey, port);
+    const agent = this.#createAgent?.(tools);
+    if (agent) {
+      await this.#runAgent(conversationKey, memory, prompt, port, agent);
+      return;
+    }
+    await this.#runResearch(conversationKey, memory, prompt, mode, port);
+  }
+
+  async #runAgent(
+    conversationKey: string,
+    memory: ConversationMemory,
+    prompt: string,
+    port: ConversationPort,
+    agent: LodgeAgent,
+  ): Promise<void> {
+    await bestEffort(port.startTyping);
+    await progressSlip(port, "Looking it up…");
+    try {
+      const result = await agent.run({
+        text: prompt,
+        savedLinks: (memory.savedLinks ?? []).map((link) => ({ url: link.url, title: link.title })),
+        timezone: memory.timezone ?? LODGE_DEFAULT_TIMEZONE,
+        previousTrace: memory.lastTrace,
+      });
+      const latest = await this.#store.getConversation(conversationKey) ?? memory;
+      latest.lastTrace = persistableTrace(result.trace);
+      latest.lastResearch = {
+        query: prompt.slice(0, 1_200),
+        topic: deriveTopic(prompt),
+        mode: "answer",
+        checkedAt: result.trace.at,
+        endpoints: result.trace.steps
+          .map((step) => step.tool)
+          .filter((tool): tool is "search" | "fetch" | "agent" => tool === "search" || tool === "fetch" || tool === "agent"),
+        sources: evidenceSourcesFromCitations(result.grounding.citations),
+      };
+      latest.updatedAt = this.#now().toISOString();
+      try {
+        await this.#store.putConversation(conversationKey, latest);
+      } catch (error) {
+        this.#logger.error("lodge.memory_persist_failed", {
+          conversationRef: this.#logger.ref(conversationKey),
+          errorType: error instanceof Error ? error.name : typeof error,
+          validationFailed: error instanceof TypeError,
+        });
+      }
+      const title = progressTitle(result.trace.steps.at(-1)?.tool) ?? "Lodge slip";
+      await progressSlip(port, title);
+      await sendLodge(port, lodgeBubbles(result.reply));
+    } catch (error) {
+      this.#logger.error("lodge.agent_failed", {
+        conversationRef: this.#logger.ref(conversationKey),
+        errorType: error instanceof Error ? error.name : typeof error,
+        validationFailed: error instanceof TypeError,
+      });
+      await port.send(SAFE_FAILURE_REPLY);
+    } finally {
+      await bestEffort(port.stopTyping);
     }
   }
 
@@ -273,16 +558,16 @@ export class CourseSignalBridge {
     mode: ResearchMode,
     port: ConversationPort,
   ): Promise<void> {
-    await port.send(
-      mode === "plan"
-        ? `On it — I’m checking live public sources${memory.activeCourse ? ` for ${memory.activeCourse}` : ""}, then I’ll build a source-linked plan.`
-        : `On it — I’m checking live public sources${memory.activeCourse ? ` for ${memory.activeCourse}` : ""}. I’ll reply with receipts, not guesses.`,
-    );
+    const resolved = mode === "answer"
+      ? resolveStudentTurn(prompt, memory.lastResearch?.topic)
+      : undefined;
+    const query = resolved?.query ?? prompt;
+    await progressSlip(port, "Looking it up…");
     await bestEffort(port.startTyping);
     let result: ResearchResult;
     try {
       result = await this.#research.research({
-        query: prompt,
+        query,
         mode,
         course: memory.activeCourse,
       });
@@ -298,7 +583,8 @@ export class CourseSignalBridge {
     }
 
     memory.lastResearch = {
-      query: prompt.slice(0, 1_200),
+      query: query.slice(0, 1_200),
+      topic: (resolved?.topic ?? memory.lastResearch?.topic ?? deriveTopic(prompt)).slice(0, 240),
       mode,
       course: memory.activeCourse,
       checkedAt: result.checkedAt,
@@ -308,71 +594,159 @@ export class CourseSignalBridge {
     memory.forgetRequestedAt = undefined;
     memory.updatedAt = this.#now().toISOString();
     await this.#store.putConversation(conversationKey, memory);
-    await port.send(result.body);
-    this.#logger.info("research.completed", {
-      conversationRef: this.#logger.ref(conversationKey),
-      sourceCount: result.sources.length,
-      endpointCount: result.endpoints.length,
-      mode,
+    const pasted = firstPublicUrl(prompt);
+    const bubbles = lodgeBubbles(result.body);
+    if (pasted && bubbles.length < 3) {
+      memory.pendingRememberPage = {
+        url: pasted,
+        kind: "other",
+        offeredAt: this.#now().toISOString(),
+      };
+      await this.#store.putConversation(conversationKey, memory);
+      bubbles.push("Want me to save that page? Reply save.");
+    }
+    await sendLodge(port, bubbles);
+  }
+
+  async #offerPastedUrl(
+    conversationKey: string,
+    memory: ConversationMemory,
+    prompt: string,
+    port: ConversationPort,
+  ): Promise<void> {
+    const url = firstPublicUrl(prompt);
+    if (!url) {
+      await this.#runResearch(conversationKey, memory, prompt, "answer", port);
+      return;
+    }
+    memory.pendingRememberPage = {
+      url,
+      kind: guessLinkKind(url),
+      offeredAt: this.#now().toISOString(),
+    };
+    let detail = url;
+    if (this.#tinyfish) {
+      await progressSlip(port, "Reading your page…");
+      try {
+        const page = await this.#tinyfish.fetch(url);
+        memory.pendingRememberPage.title = page.title;
+        memory.pendingRememberPage.excerpt = page.text.slice(0, 400);
+        detail = `${page.title || url}\n${page.text.replace(/\s+/g, " ").trim().slice(0, 240)}`;
+      } catch {
+        detail = url;
+      }
+    }
+    memory.updatedAt = this.#now().toISOString();
+    await this.#store.putConversation(conversationKey, memory);
+    await sendLodge(port, [detail, "Want me to save this page? Reply save."]);
+  }
+
+  async #emitTool(
+    port: ConversationPort,
+    tools: LodgeLocalToolHandler,
+    name: string,
+    args: Record<string, unknown>,
+  ): Promise<void> {
+    await bestEffort(port.startTyping);
+    try {
+      const result = await tools.execute(name, args);
+      const formatted = formatLodgeToolContent(name, result.content);
+      if (formatted.slip) await progressSlip(port, formatted.slip.title, formatted.slip);
+      await sendLodge(port, formatted.bubbles, formatted.slip);
+    } catch {
+      await sendLodge(port, ["A TinyFish check failed. I have not guessed."]);
+    } finally {
+      await bestEffort(port.stopTyping);
+    }
+  }
+
+  #tools(conversationKey: string, port?: ConversationPort): LodgeLocalToolHandler {
+    return createLodgeTools({
+      store: this.#store,
+      conversationKey,
+      now: this.#now,
+      tinyfish: this.#tinyfish,
+      roles: this.#roles,
+      onProgress: port
+        ? async (label) => {
+          await progressSlip(port, label);
+        }
+        : undefined,
     });
   }
 
-  async #handleCourse(
+  async #handleSave(
     conversationKey: string,
     memory: ConversationMemory,
-    command: Extract<ParsedCommand, { kind: "course" }>,
     port: ConversationPort,
   ): Promise<void> {
-    if (command.action === "list") {
-      await port.send(formatCourses(memory));
+    const pending = memory.pendingRememberPage;
+    if (!pending) {
+      await sendLodge(port, ["Nothing waiting to save. Paste a public URL first."]);
       return;
     }
-    if (command.action === "clear") {
-      memory.courses = [];
-      memory.activeCourse = undefined;
-      memory.updatedAt = this.#now().toISOString();
-      await this.#store.putConversation(conversationKey, memory);
-      await port.send("Course names are cleared. Your consent and evidence receipt are unchanged; send FORGET to erase everything.");
-      return;
-    }
+    const next = saveLink(memory, {
+      kind: pending.kind ?? "other",
+      url: pending.url,
+      title: pending.title,
+    }, this.#now());
+    next.pendingRememberPage = undefined;
+    await this.#store.putConversation(conversationKey, next);
+    await sendLodge(port, [`Saved ${pending.title ?? pending.url}.`]);
+  }
 
-    const name = normalizeCourseName(command.name);
-    if (!name) {
-      await port.send("Use a short course name, for example: COURSE STAT 210.");
+  async #handleConfirm(
+    conversationKey: string,
+    memory: ConversationMemory,
+    port: ConversationPort,
+  ): Promise<void> {
+    const reminders = [...(memory.pendingReminders ?? [])];
+    const index = reminders.findLastIndex((item) => item.status === "pending_confirm");
+    if (index < 0) {
+      await sendLodge(port, ["Nothing waiting on a yes."]);
       return;
     }
-    const existing = memory.courses.find((course) => course.toLowerCase() === name.toLowerCase());
-
-    if (command.action === "remove") {
-      if (!existing) {
-        await port.send(`I don’t have “${name}” in this chat’s course memory.`);
-        return;
-      }
-      memory.courses = memory.courses.filter((course) => course !== existing);
-      if (memory.activeCourse === existing) memory.activeCourse = memory.courses[0];
-      memory.updatedAt = this.#now().toISOString();
-      await this.#store.putConversation(conversationKey, memory);
-      await port.send(`Removed ${existing}. ${memory.activeCourse ? `Active course: ${memory.activeCourse}.` : "No course is active."}`);
-      return;
-    }
-
-    if (command.action === "use" && !existing) {
-      await port.send(`I don’t remember “${name}” yet. Send COURSE ${name} to add it.`);
-      return;
-    }
-
-    const selected = existing ?? name;
-    if (!existing) {
-      if (memory.courses.length >= 8) {
-        await port.send("This chat already remembers 8 courses. Remove one with COURSE REMOVE <name> first.");
-        return;
-      }
-      memory.courses.push(selected);
-    }
-    memory.activeCourse = selected;
+    const reminder = {
+      ...reminders[index]!,
+      status: "scheduled" as const,
+      confirmedAt: this.#now().toISOString(),
+    };
+    reminders[index] = reminder;
+    memory.pendingReminders = reminders;
     memory.updatedAt = this.#now().toISOString();
     await this.#store.putConversation(conversationKey, memory);
-    await port.send(`${selected} is now the active course. Send a question or public course link when ready.`);
+    await sendLodge(port, [`Confirmed. I’ll text first at ${reminder.localFireLabel ?? reminder.fireAt}.`]);
+  }
+
+  async #handleSnooze(
+    conversationKey: string,
+    memory: ConversationMemory,
+    duration: string,
+    port: ConversationPort,
+  ): Promise<void> {
+    const reminders = [...(memory.pendingReminders ?? [])];
+    const index = reminders.findLastIndex((item) =>
+      item.status === "scheduled" || item.status === "fired" || item.status === "snoozed"
+    );
+    if (index < 0) {
+      await sendLodge(port, ["Nothing to snooze."]);
+      return;
+    }
+    const fire = parseReminderWhen(duration, this.#now(), memory.timezone ?? LODGE_DEFAULT_TIMEZONE);
+    if (!fire) {
+      await sendLodge(port, ["Try snooze 1h."]);
+      return;
+    }
+    reminders[index] = {
+      ...reminders[index]!,
+      status: "snoozed",
+      snoozeUntil: fire.toISOString(),
+      fireAt: fire.toISOString(),
+    };
+    memory.pendingReminders = reminders;
+    memory.updatedAt = this.#now().toISOString();
+    await this.#store.putConversation(conversationKey, memory);
+    await sendLodge(port, [`Snoozed until ${fire.toISOString()}.`]);
   }
 
   async #handleWatch(
@@ -381,9 +755,9 @@ export class CourseSignalBridge {
     requestedTarget: string,
     port: ConversationPort,
   ): Promise<void> {
-    const target = requestedTarget.trim() || memory.lastResearch?.sources[0]?.url || memory.lastResearch?.query || "";
+    const target = requestedTarget.trim() || memory.lastResearch?.sources[0]?.url || memory.pendingRememberPage?.url || "";
     if (!target) {
-      await port.send("Send WATCH after a sourced result, or use WATCH <public URL or topic>.");
+      await port.send("Send WATCH after a sourced result, or use WATCH <public URL>.");
       return;
     }
     const normalized = target.slice(0, 500);
@@ -403,9 +777,28 @@ export class CourseSignalBridge {
         active: true,
       });
     }
+    const url = firstPublicUrl(normalized);
+    if (url) {
+      const saved = saveLink(memory, { kind: "other", url }, this.#now());
+      const link = saved.savedLinks?.find((item) => item.url === url);
+      if (link) link.watchEnabled = true;
+      Object.assign(memory, saved);
+    }
     memory.updatedAt = this.#now().toISOString();
     await this.#store.putConversation(conversationKey, memory);
-    await port.send("Watch preference saved. CourseSignal may text only for a meaningful verified change—never routine ‘no change’ updates. Send STOP anytime.");
+    await port.send("Watch saved. Lodge may text only for a meaningful verified change — never a routine ‘no change’. Send STOP anytime.");
+  }
+
+  async #pauseWatches(
+    conversationKey: string,
+    memory: ConversationMemory,
+    port: ConversationPort,
+  ): Promise<void> {
+    memory.watches = memory.watches.map((watch) => ({ ...watch, active: false }));
+    memory.rolesOptIn = false;
+    memory.updatedAt = this.#now().toISOString();
+    await this.#store.putConversation(conversationKey, memory);
+    await port.send("All proactive watches are paused. You can still ask here; send WATCH when you want to opt in again.");
   }
 
   async #handleForget(
@@ -425,7 +818,7 @@ export class CourseSignalBridge {
       memory.forgetRequestedAt = this.#now().toISOString();
       memory.updatedAt = this.#now().toISOString();
       await this.#store.putConversation(conversationKey, memory);
-      await port.send("This will erase course names, the latest evidence receipt, watches, and consent for this chat. Reply FORGET CONFIRM within 10 minutes, or FORGET CANCEL.");
+      await port.send("This will erase the notebook, reminders, saved pages, watches, and consent for this chat. Reply FORGET CONFIRM within 10 minutes, or FORGET CANCEL.");
       return;
     }
 
@@ -437,67 +830,129 @@ export class CourseSignalBridge {
       return;
     }
     await this.#store.deleteConversation(conversationKey);
-    await port.send("Done. This chat’s CourseSignal memory and consent were deleted. Reply START if you want to use it again.");
+    await port.send("Done. This chat’s Lodge memory and consent were deleted. Reply START if you want to use it again.");
   }
 }
 
 function emptyMemory(now: Date): ConversationMemory {
-  return { courses: [], watches: [], updatedAt: now.toISOString() };
+  return {
+    courses: [],
+    watches: [],
+    updatedAt: now.toISOString(),
+    timezone: LODGE_DEFAULT_TIMEZONE,
+    quietHours: {
+      start: LODGE_DEFAULT_QUIET_START,
+      end: LODGE_DEFAULT_QUIET_END,
+      enabled: true,
+    },
+    notebook: [],
+    savedLinks: [],
+    pendingReminders: [],
+  };
 }
 
 function hasCurrentConsent(
   memory: ConversationMemory | undefined,
-): memory is ConversationMemory & { consentedAt: string; consentVersion: 2 } {
+): memory is ConversationMemory & { consentedAt: string; consentVersion: typeof LODGE_CONSENT_VERSION } {
   return Boolean(memory?.consentedAt) && memory?.consentVersion === CONSENT_VERSION;
 }
 
-function normalizeCourseName(value: string): string {
-  return value
-    .replace(/[\u0000-\u001F\u007F]/g, "")
+function shouldApplyCheckIn(
+  kind: ParsedCommand["kind"],
+  text: string,
+  step: NonNullable<ConversationMemory["checkInStep"]>,
+): boolean {
+  return kind === "skip"
+    || kind === "research"
+    || kind === "find_roles"
+    || kind === "save"
+    || kind === "whats_due"
+    || kind === "whats_on"
+    || kind === "remind"
+    || kind === "note"
+    || kind === "plan"
+    || looksLikeCheckInInterrupt(text, step);
+}
+
+const FOLLOW_UP_CUE =
+  /\b(?:examples?|simpler|easier|why|another|again|elaborate|expand|clarify|explainable|walk me through|show me|break (?:it |this )?down)\b/i;
+const NEW_QUESTION =
+  /^(?:what(?:'s| is| are)|who(?:'s| is| are)?|when|where|which|explain|define|describe|find|search|look up|how (?:much|many|do|does|can|should|is|are)|am i|is there|are there|tell me about)\b/i;
+const FOLLOW_UP_STOP = new Set([
+  "give", "please", "could", "would", "explain", "explainable", "example", "examples",
+  "simpler", "simple", "easier", "another", "show", "walk", "through", "that", "this",
+  "with", "from", "about", "what", "when", "where", "which", "have", "make", "want",
+  "need", "just", "more", "less", "also", "then", "than", "into", "your", "mine",
+  "worked", "step", "steps", "plain", "again", "why", "how", "does", "mean", "means",
+  "like", "using", "tell", "text", "look", "help", "can", "you", "for", "and", "the",
+  "get", "got", "one", "some", "any", "detail", "details", "info", "information",
+  "happen", "happens", "sense", "thanks", "thank",
+]);
+
+export type ResolvedTurn = {
+  query: string;
+  topic: string;
+  followUp: boolean;
+};
+
+/** Standing subject with question framing removed, for follow-ups and study plans. */
+export function deriveTopic(prompt: string): string {
+  const stripped = prompt
+    .replace(/^(?:please\s+)?(?:can you |could you |would you )?(?:please\s+)?(?:explain|define|describe|tell me about|what(?:'s| is| are)|how (?:do|does|is|are)|find|look up)\s+/i, "")
+    .replace(/[?!.]+$/g, "")
     .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 80);
+    .trim();
+  return (stripped || prompt.trim()).slice(0, 240);
 }
 
-function formatCourses(memory: ConversationMemory): string {
-  if (memory.courses.length === 0) return "No courses remembered. Add one with COURSE <name>.";
-  return [
-    "REMEMBERED COURSES",
-    ...memory.courses.map((course) => `${course === memory.activeCourse ? "●" : "○"} ${course}`),
-    "",
-    "Use COURSE USE <name> to switch.",
-  ].join("\n");
+function novelTerms(text: string, topic: string): string[] {
+  const topicBlob = topic.toLowerCase();
+  return text
+    .toLowerCase()
+    .split(/[^a-z0-9+]+/)
+    .filter((word) => word.length >= 4 && !FOLLOW_UP_STOP.has(word) && !topicBlob.includes(word));
 }
 
-function formatSources(memory: ConversationMemory): string {
-  const research = memory.lastResearch;
-  if (!research || research.sources.length === 0) {
-    return "There isn’t an evidence receipt yet. Send a question or public course link first.";
+function isFollowUp(text: string, topic: string): boolean {
+  const words = text.split(/\s+/).filter(Boolean);
+  if (words.length === 0 || words.length > 18) return false;
+  if (novelTerms(text, topic).length > 0) return false;
+  if (NEW_QUESTION.test(text)) return false;
+  return FOLLOW_UP_CUE.test(text) || words.length <= 5;
+}
+
+/**
+ * Short anaphoric messages continue the last topic. A standalone question replaces it.
+ * The resolved query is what TinyFish and the composer see; it is not a chat transcript.
+ */
+export function resolveStudentTurn(prompt: string, previousTopic?: string): ResolvedTurn {
+  const text = prompt.replace(/\s+/g, " ").trim();
+  const topic = deriveTopic(text);
+  const standing = previousTopic?.replace(/\s+/g, " ").trim().slice(0, 240);
+  if (!standing || !isFollowUp(text, standing)) {
+    return { query: text, topic, followUp: false };
   }
-  return [
-    "EVIDENCE RECEIPT",
-    `Checked: ${research.checkedAt}`,
-    `Endpoints: ${research.endpoints.join(" → ") || "none"}`,
-    "",
-    ...research.sources.slice(0, 4).flatMap((source, index) => [
-      `${index + 1}. ${source.title} [${source.endpoint}]`,
-      compact(source.excerpt, 600),
-      source.url,
-      "",
-    ]),
-  ].join("\n");
+  return {
+    query: `${standing} — ${text}`.slice(0, 1_200),
+    topic: standing,
+    followUp: true,
+  };
 }
 
 function formatMemory(memory: ConversationMemory): string {
   const activeWatches = memory.watches.filter(({ active }) => active).length;
+  const pending = (memory.pendingReminders ?? []).filter((item) =>
+    item.status === "scheduled" || item.status === "pending_confirm" || item.status === "snoozed"
+  ).length;
   return [
-    "THIS CHAT REMEMBERS",
-    `Active course: ${memory.activeCourse ?? "none"}`,
-    `Courses: ${memory.courses.length}`,
-    `Latest receipt: ${memory.lastResearch ? memory.lastResearch.checkedAt : "none"}`,
+    showNotes(memory),
+    "",
+    `School: ${memory.school ?? "unset"} · ${memory.timezone ?? LODGE_DEFAULT_TIMEZONE}`,
+    `Saved pages: ${(memory.savedLinks ?? []).length}`,
+    `Reminders: ${pending}`,
     `Active watches: ${activeWatches}`,
     "",
-    "CourseSignal does not show or log your phone number here. Send FORGET to erase this chat’s memory.",
+    "Lodge does not show or log your phone number here. Send FORGET to erase this chat’s memory.",
   ].join("\n");
 }
 
@@ -511,6 +966,120 @@ async function bestEffort(operation: (() => Promise<void>) | undefined): Promise
   await operation().catch(() => undefined);
 }
 
+async function progressSlip(
+  port: ConversationPort,
+  title: string,
+  slip?: { title: string; url?: string; start?: string; end?: string; location?: string },
+): Promise<void> {
+  const card = slip ?? { title };
+  try {
+    const url = buildSlipUrl(card);
+    const sent = await port.sendApp?.({ url, title: card.title });
+    if (sent && port.edit && sent.messageId) {
+      await port.edit(sent.messageId, card.title).catch(() => undefined);
+    }
+  } catch {
+    // Never block the answer on the card.
+  }
+}
+
+async function sendLodge(
+  port: ConversationPort,
+  bubbles: string[],
+  slip?: { title: string; url?: string; start?: string; end?: string; location?: string },
+): Promise<void> {
+  if (slip) {
+    await progressSlip(port, slip.title, slip);
+    await port.sendRichLink?.({ url: buildSlipUrl(slip), title: slip.title }).catch(() => undefined);
+  }
+  for (const bubble of lodgeBubbles(bubbles.join("\n\n"))) {
+    await port.send(lodgeSafeText(bubble));
+  }
+}
+
+function lodgeBubbles(text: string): string[] {
+  const cleaned = lodgeSafeText(text).trim();
+  if (!cleaned) return [];
+  const parts = cleaned.split(/\n{2,}/).map((part) => part.trim()).filter(Boolean);
+  if (parts.length > 1) return parts.slice(0, 3);
+  if (cleaned.length <= 420) return [cleaned];
+  const sentences = cleaned.split(/(?<=[.!?])\s+/).filter(Boolean);
+  if (sentences.length <= 1) return [cleaned.slice(0, 900)];
+  const grouped: string[] = [];
+  let current = "";
+  for (const sentence of sentences) {
+    const next = current ? `${current} ${sentence}` : sentence;
+    if (next.length > 280 && current && grouped.length < 2) {
+      grouped.push(current);
+      current = sentence;
+    } else {
+      current = next;
+    }
+  }
+  if (current) grouped.push(current);
+  return grouped.slice(0, 3);
+}
+
+function lodgeSafeText(text: string): string {
+  return text
+    .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "[redacted]")
+    .replace(/\bCourseSignal\b/gi, "Lodge")
+    .replace(/\bSTAT 210\b/gi, "your course");
+}
+
+function mostlyUrl(text: string): boolean {
+  const urls = extractStudentUrls(text);
+  if (urls.length === 0) return false;
+  const stripped = text
+    .replace(/https?:\/\/\S+/gi, "")
+    .replace(/\b(?:www\.)?(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}\/\S*/gi, "")
+    .trim();
+  return stripped.length < 12;
+}
+
+export function evidenceSourcesFromCitations(citations: CitedToolResult[]): EvidenceSource[] {
+  const sources: EvidenceSource[] = [];
+  for (const citation of citations) {
+    if (citation.tool !== "search" && citation.tool !== "fetch" && citation.tool !== "agent") continue;
+    const url = publicHttpsUrl(citation.url);
+    if (!url) continue;
+    const title = (citation.title ?? "Source").trim().slice(0, 500) || "Source";
+    sources.push({
+      title,
+      url,
+      excerpt: citation.text.slice(0, 10_000),
+      endpoint: citation.tool,
+    });
+    if (sources.length >= 5) break;
+  }
+  return sources;
+}
+
+function persistableTrace(trace: LastTraceMemory): LastTraceMemory {
+  return {
+    ...trace,
+    steps: trace.steps.map((step) => {
+      const url = publicHttpsUrl(step.url);
+      return url ? { ...step, url } : { ...step, url: undefined };
+    }),
+  };
+}
+
+function guessLinkKind(url: string): "course" | "events" | "opportunity" | "other" {
+  const hay = url.toLowerCase();
+  if (/event|calendar|whats-on/.test(hay)) return "events";
+  if (/job|career|intern|opportunit/.test(hay)) return "opportunity";
+  if (/syllabus|course|canvas|learn/.test(hay)) return "course";
+  return "other";
+}
+
+function progressTitle(tool?: string): string | undefined {
+  if (tool === "search") return "Looking it up…";
+  if (tool === "fetch") return "Reading your page…";
+  if (tool === "agent") return "Opening it read-only…";
+  return undefined;
+}
+
 /** Compatibility helper for the original proof and narrow integrations. */
 export async function replyForText(text: string): Promise<string> {
   const local = parseCommand(text);
@@ -518,7 +1087,7 @@ export async function replyForText(text: string): Promise<string> {
   if (local.kind === "diagnostic") {
     return local.action === "ping"
       ? "pong"
-      : "CourseSignal’s message bridge is reachable. Send ECHO <words> for a local round-trip or START to begin.";
+      : "Lodge’s message bridge is reachable. Send ECHO <words> for a local round-trip or START to begin.";
   }
   const store = new InMemoryBridgeStore();
   const output: string[] = [];
@@ -539,3 +1108,5 @@ export async function replyForText(text: string): Promise<string> {
   );
   return output.at(-1) ?? SAFE_FAILURE_REPLY;
 }
+
+export { FIRSTROLE_URL };

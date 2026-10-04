@@ -4,13 +4,13 @@
 
 **Text the question. Get the evidence.**
 
-CourseSignal is for students who need to resolve scattered or ambiguous academic and campus information without opening another complicated app. It covers courses, textbooks, campus services and events, scholarships, public university guidance, and deadlines. It remembers context only when the student explicitly asks, labels uncertainty instead of guessing, and stays quiet unless the student opts into a meaningful source watch.
+Lodge is for students who need to resolve scattered or ambiguous academic and campus information without opening another complicated app. It covers courses, textbooks, campus services and events, scholarships, public university guidance, and deadlines. It remembers context only when the student explicitly asks, labels uncertainty instead of guessing, and stays quiet unless the student opts into a meaningful source watch.
 
 The product is broad within student life, not a generic personal assistant. It does not handle banking, private social messages, shopping on the user's behalf, or unrelated consumer automation.
 
 ## Bounty demonstration
 
-The primary demonstration begins with one real iPhone request containing a public syllabus URL. CourseSignal acknowledges the work, then uses TinyFish Fetch for the supplied source, Search for missing authoritative references, and Agent only for one genuinely interactive public catalogue. The final iMessage contains the verified deadline or topic, exact edition information, a legitimate access option, checked time, and `SOURCES`, `PLAN`, and `WATCH` follow-ups.
+The primary demonstration begins with one real iPhone request containing a public syllabus URL. Lodge acknowledges the work, then uses TinyFish Fetch for the supplied source, Search for missing authoritative references, and Agent only for one genuinely interactive public catalogue. The final iMessage contains the verified deadline or topic, exact edition information, a legitimate access option, checked time, and `SOURCES`, `PLAN`, and `WATCH` follow-ups.
 
 ## Definition of polished
 

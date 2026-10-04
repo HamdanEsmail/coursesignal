@@ -1,6 +1,6 @@
-# CourseSignal bridge
+# Lodge bridge
 
-This process connects Photon Spectrum Cloud to CourseSignal's evidence policy. CourseSignal is a general student-life copilot specialized in course concepts, campus services and events, textbooks and legitimate resources, scholarships and opportunities, deadlines, and broader student research. It has no webhook or message-ingress HTTP route and never puts Photon or TinyFish credentials in browser code. An optional, read-only `/healthz` listener is available for an always-on container.
+This process connects Photon Spectrum Cloud to Lodge's evidence policy. Lodge is a general student-life copilot specialized in course concepts, campus services and events, textbooks and legitimate resources, scholarships and opportunities, deadlines, and broader student research. It has no webhook or message-ingress HTTP route and never puts Photon or TinyFish credentials in browser code. An optional, read-only `/healthz` listener is available for an always-on container.
 
 ## Message lifecycle
 
@@ -8,7 +8,7 @@ This process connects Photon Spectrum Cloud to CourseSignal's evidence policy. C
 2. A durable claim suppresses delivery retries. Failed work releases its claim; completed work remains deduplicated.
 3. New conversations must send `START` before any user text reaches TinyFish.
 4. Short text bursts from one conversation are debounced into one request. Work remains serial within that conversation, while different conversations can progress concurrently.
-5. Research sends an immediate acknowledgement, then TinyFish Search and Fetch. Fetch requests up to three query-ranked Highlights capped at 700 characters; when Highlights explicitly returns `403` or an unsupported-feature response, the bridge makes one ordinary full-page Fetch compatibility call. Interactive-page TinyFish Agent is an optional, bounded read-only escalation only when Fetch produced no readable evidence. A separately gated OpenRouter composer may turn the already-fetched evidence into one concise structured answer; malformed, expensive, unsupported, or failed synthesis falls back to the local extractive answer.
+5. Research sends an immediate acknowledgement, then TinyFish Search and Fetch. Short follow-ups stay on the last topic; a new question replaces it. Fetch requests up to three query-ranked Highlights capped at 700 characters; when Highlights explicitly returns `403` or an unsupported-feature response, the bridge makes one ordinary full-page Fetch compatibility call. If the student asked for an example and those pages contain none, the bridge makes one extra Search and Fetch for a worked problem. Interactive-page TinyFish Agent is an optional, bounded read-only escalation only when Fetch produced no readable evidence. A separately gated OpenRouter composer may turn the already-fetched evidence into one tutor-style answer; malformed, expensive, unsupported, off-topic, or failed synthesis falls back to the local extractive answer. OpenRouter is still called at most once.
 6. A dropped Photon stream reconnects with exponential backoff. SIGINT/SIGTERM stop intake, drain in-flight work, flush state, and close Spectrum.
 
 `ECHO`, `PING`, `STATUS`, `TEST`, and `HEALTH` are local diagnostics. They are available before consent and never invoke TinyFish.
@@ -23,6 +23,7 @@ This process connects Photon Spectrum Cloud to CourseSignal's evidence policy. C
 - `WATCH [source or topic]` — save an opt-in watch preference.
 - `STOP` — pause all proactive watches.
 - `MEMORY` — show the bounded state retained for this chat.
+- `EXAMPLE` — look again for a worked problem on the last topic.
 - `FORGET`, then `FORGET CONFIRM` — erase course state, receipts, watches, and consent.
 
 At the Photon edge, only genuine inbound human text is admitted. Outbound echoes, read/delivery receipts, typing, reactions, system/service events, group changes, attachments, and malformed/no-sender records are silently ignored so provider events can never create a reply loop. The transport-neutral core still returns a safe text-only explanation when another trusted adapter deliberately passes unsupported content. Nothing non-text is uploaded or analyzed.
@@ -40,11 +41,12 @@ Useful optional variables:
 - `COURSESIGNAL_TIME_ZONE` — receipt display zone; default `Asia/Dubai`.
 - `COURSESIGNAL_HEALTH_PORT` — enables `/healthz` on this port. Falls back to a platform-provided `PORT`; with neither value, HTTP stays disabled.
 - `COURSESIGNAL_HEALTH_HOST` — bind address when health is enabled; default `0.0.0.0`.
+- `LODGE_MODE` — Gemma tool loop (LodgeAgent, TinyFish Search/Fetch/Agent, roles finder, scheduler page-fetch and roles watch). Default **off**. Azure stays on the previous TinyFish research path until this is an explicit true token (`true`, `1`, `yes`, or `on`) in the **bridge** environment, then one replica restart. Do not start a second Photon listener. Requires `TINYFISH_API_KEY`. Gemma calls also need `OPENROUTER_ENABLED=true` and `OPENROUTER_API_KEY`. Keep it off until the iPhone friend loop works.
 - `TINYFISH_AGENT_ENABLED` — must be exactly `true` to permit interactive-page extraction when Fetch cannot read a page; default is disabled.
 - `TINYFISH_AGENT_MAX_STEPS` — interactive-page extraction, clamped to `1..12`; default `8`.
 - `TINYFISH_AGENT_MAX_SECONDS` — interactive-page extraction, clamped to `10..90`; default `45`.
 - `OPENROUTER_ENABLED` — must be exactly `true` to permit optional answer composition; default is disabled. This flag is independent of `TINYFISH_AGENT_ENABLED`.
-- `OPENROUTER_API_KEY` — server-only key for CourseSignal's bounded composer. Use a dedicated key with an account-side spending limit; never reuse or expose it in browser code.
+- `OPENROUTER_API_KEY` — server-only key for Lodge's bounded composer. Use a dedicated key with an account-side spending limit; never reuse or expose it in browser code.
 
 ### Supabase durable state
 
@@ -70,15 +72,15 @@ The default retrieval path remains TinyFish Search → TinyFish Fetch Highlights
 - Output limit: 600 tokens and a strict JSON Schema.
 - Rate ceilings: $0.10 input and $0.40 output per million tokens.
 
-Before inference, CourseSignal reads OpenRouter's endpoint metadata and fails closed unless the exact model/provider supports JSON Schema structured output and remains under both rate ceilings. A successful proof is cached in memory for at most six hours; the completion request still carries the verified `max_price`, exact provider allowlist, `require_parameters`, zero-data-retention, and data-collection-denial constraints.
+Before inference, Lodge reads OpenRouter's endpoint metadata and fails closed unless the exact model/provider supports JSON Schema structured output and remains under both rate ceilings. A successful proof is cached in memory for at most six hours; the completion request still carries the verified `max_price`, exact provider allowlist, `require_parameters`, zero-data-retention, and data-collection-denial constraints.
 
-The composer receives only the current sanitized question, its broad student-intent category, and at most three 700-character evidence excerpts produced by TinyFish Fetch. It does not receive the Photon sender, phone number, conversation identifier, saved course memory, prior messages, source URLs, credentials, or TinyFish Agent output. Email addresses, phone-like strings, student-ID patterns, and URLs are redacted from the prompt.
+The composer receives only the current sanitized question, its broad student-intent category, and at most three 700-character evidence excerpts produced by TinyFish Fetch. A short follow-up’s question may already include the topic of the last answer; that is not the earlier transcript. It does not receive the Photon sender, phone number, conversation identifier, saved course memory, prior messages, source URLs, credentials, or TinyFish Agent output. Email addresses, phone-like strings, student-ID patterns, and URLs are redacted from the prompt.
 
 Every composed explanation and takeaway is a claim-local evidence block containing its text, one allowed source ID, and a short exact support quotation; a worked example is either the same complete block or `null`. This wire shape deliberately avoids parallel claim and quotation arrays, so the JSON grammar cannot pair a null example with an orphan example quote or omit the takeaway's support. The server maps valid blocks back to the existing public answer type, verifies each quotation against the mapped TinyFish evidence, and requires semantic term overlap between each claim and quote. For that overlap only, conventional probability notation is interpreted narrowly (`Pr`/`P` as probability, `∩` as intersection, `/` as division, and `|` as given/conditional); the quote must still occur exactly in the evidence and all other grounding checks still apply. The validator rejects invented numeric/date/currency tokens, checks requested-component gaps against source evidence rather than model prose, and then hides the quotations from the short iMessage answer. Output is accepted only when every key, type, field length, source ID, support quote, and `actionTaken: false` invariant matches the local contract. URLs, email addresses, phone numbers, bare domains, instruction-like text, external-action claims, unexpected fields, malformed JSON, partial responses, tool calls, cache hits, timeouts, metadata drift, and provider errors are rejected.
 
 The request explicitly disables OpenRouter's `web`, `response-healing`, `context-compression`, `fusion`, and `auto-router` plugins and sends `X-OpenRouter-Cache: false`. The response is rejected if it reports a cache hit or tool call. Before deployment, the dedicated OpenRouter workspace must also have every default plugin off with no administrator-enforced override, logging disabled, ZDR/guardrails enabled, and a spending cap; request-level settings cannot overrule an administrator-forced default.
 
-OpenRouter is therefore a presentation layer, not the evidence source or browser automation engine. TinyFish Agent remains reserved for genuinely interactive public pages that Search + Fetch cannot read. If OpenRouter is disabled or rejects a response, CourseSignal sends its existing concise extractive answer from the same TinyFish evidence.
+OpenRouter is therefore a presentation layer, not the evidence source or browser automation engine. TinyFish Agent remains reserved for genuinely interactive public pages that Search + Fetch cannot read. If OpenRouter is disabled or rejects a response, Lodge sends its existing concise extractive answer from the same TinyFish evidence.
 
 Consent is versioned. Conversations that accepted the earlier TinyFish-only disclosure must send `START` again before the current multi-provider research path can run; their existing course memory is preserved during renewal.
 

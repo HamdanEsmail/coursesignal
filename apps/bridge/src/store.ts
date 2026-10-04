@@ -1,7 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import type { BridgeStore, ConversationMemory } from "./types.js";
+import {
+  LODGE_NOTEBOOK_CAP,
+  LODGE_PENDING_REMINDERS_CAP,
+  LODGE_SAVED_LINKS_CAP,
+  LODGE_TRACE_STEPS_CAP,
+  type BridgeStore,
+  type ConversationMemory,
+} from "./types.js";
 
 type PersistedState = {
   version: 1;
@@ -26,6 +33,21 @@ const EMPTY_STATE: PersistedState = {
 
 function clone<T>(value: T): T {
   return structuredClone(value);
+}
+
+/**
+ * Persist a defensive copy. Lodge arrays are capped here so the JSON/in-memory
+ * backends match the SQL shape. Encrypted space handles are cloned into the
+ * store only — this helper never logs or stringifies ciphertext.
+ */
+function persistableMemory(memory: ConversationMemory): ConversationMemory {
+  if ((memory.savedLinks?.length ?? 0) > LODGE_SAVED_LINKS_CAP
+    || (memory.notebook?.length ?? 0) > LODGE_NOTEBOOK_CAP
+    || (memory.pendingReminders?.length ?? 0) > LODGE_PENDING_REMINDERS_CAP
+    || (memory.lastTrace?.steps.length ?? 0) > LODGE_TRACE_STEPS_CAP) {
+    throw new TypeError("Conversation memory failed validation.");
+  }
+  return clone(memory);
 }
 
 export class InMemoryBridgeStore implements BridgeStore {
@@ -70,7 +92,7 @@ export class InMemoryBridgeStore implements BridgeStore {
   }
 
   async putConversation(conversationKey: string, memory: ConversationMemory): Promise<void> {
-    this.#conversations.set(conversationKey, clone(memory));
+    this.#conversations.set(conversationKey, persistableMemory(memory));
   }
 
   async deleteConversation(conversationKey: string): Promise<void> {
@@ -141,8 +163,9 @@ export class JsonFileBridgeStore implements BridgeStore {
   }
 
   async putConversation(conversationKey: string, memory: ConversationMemory): Promise<void> {
+    const persisted = persistableMemory(memory);
     await this.#mutate((state) => {
-      state.conversations[conversationKey] = clone(memory);
+      state.conversations[conversationKey] = persisted;
     });
   }
 

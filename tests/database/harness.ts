@@ -7,6 +7,7 @@ const migrationsDirectory = fileURLToPath(new URL("../../supabase/migrations/", 
 export async function createMigratedDatabase(): Promise<PGlite> {
   const database = new PGlite();
   await database.exec(`
+    create role anon nologin;
     create role authenticated nologin;
     create role service_role nologin bypassrls;
     create schema auth;

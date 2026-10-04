@@ -1,12 +1,16 @@
 import { createHash } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
-import type {
-  BridgeOutboxStore,
-  BridgeStore,
-  ConversationMemory,
-  OutboxClaim,
-  OutboxEnqueueResult,
+import {
+  LODGE_NOTEBOOK_CAP,
+  LODGE_PENDING_REMINDERS_CAP,
+  LODGE_SAVED_LINKS_CAP,
+  LODGE_TRACE_STEPS_CAP,
+  type BridgeOutboxStore,
+  type BridgeStore,
+  type ConversationMemory,
+  type OutboxClaim,
+  type OutboxEnqueueResult,
 } from "./types.js";
 
 type RpcError = {
@@ -28,6 +32,12 @@ const opaqueKeySchema = z.string().regex(/^[0-9a-f]{64}$/);
 const uuidSchema = z.uuid();
 const timestampSchema = z.iso.datetime({ offset: true });
 const endpointSchema = z.enum(["search", "fetch", "agent"]);
+const clockSchema = z.string().regex(/^(?:[01][0-9]|2[0-3]):[0-5][0-9]$/);
+/** Public https URLs only. Matches the runtime SQL shape. */
+const httpsUrlSchema = z.string().min(9).max(2048).regex(/^https:\/\/\S+$/);
+const ciphertextSchema = z.string().regex(/^[0-9a-f]+$/).refine(
+  (value) => value.length >= 64 && value.length <= 8192 && value.length % 2 === 0,
+);
 
 const evidenceSourceSchema = z.object({
   title: z.string().min(1).max(500),
@@ -46,23 +56,155 @@ const watchMemorySchema = z.object({
 
 const lastResearchMemorySchema = z.object({
   query: z.string().min(1).max(1_200),
+  topic: z.string().min(1).max(240).optional(),
   mode: z.enum(["answer", "plan"]),
   course: z.string().min(1).max(80).optional(),
   checkedAt: timestampSchema,
-  endpoints: z.array(endpointSchema).max(3),
+  endpoints: z.array(endpointSchema).max(8),
   sources: z.array(evidenceSourceSchema).max(5),
 }).strict();
 
+const quietHoursSchema = z.object({
+  start: clockSchema,
+  end: clockSchema,
+  enabled: z.boolean(),
+}).strict();
+
+const savedLinkSchema = z.object({
+  id: uuidSchema,
+  kind: z.enum(["course", "events", "opportunity", "other"]),
+  url: httpsUrlSchema,
+  title: z.string().min(1).max(200).optional(),
+  createdAt: timestampSchema,
+  contentHash: opaqueKeySchema.optional(),
+  lastFetchedAt: timestampSchema.optional(),
+  lastChangedAt: timestampSchema.optional(),
+  watchEnabled: z.boolean().optional(),
+}).strict();
+
+const notebookNoteBase = {
+  id: uuidSchema,
+  text: z.string().min(1).max(500),
+  createdAt: timestampSchema,
+  url: httpsUrlSchema.optional(),
+};
+
+const opportunityNoteSchema = z.object({
+  ...notebookNoteBase,
+  kind: z.literal("opportunity"),
+  company: z.string().min(1).max(120).optional(),
+  listingTitle: z.string().min(1).max(200).optional(),
+  applied: z.boolean(),
+  appliedAt: timestampSchema.optional(),
+}).strict().superRefine((note, ctx) => {
+  if (note.appliedAt !== undefined && note.applied !== true) {
+    ctx.addIssue({ code: "custom", message: "appliedAt requires applied", path: ["appliedAt"] });
+  }
+});
+
+const notebookNoteSchema = z.discriminatedUnion("kind", [
+  z.object({
+    ...notebookNoteBase,
+    kind: z.literal("deadline"),
+    dueAt: timestampSchema.optional(),
+  }).strict(),
+  z.object({
+    ...notebookNoteBase,
+    kind: z.literal("event"),
+    startsAt: timestampSchema.optional(),
+    endsAt: timestampSchema.optional(),
+    where: z.string().min(1).max(200).optional(),
+  }).strict(),
+  opportunityNoteSchema,
+  z.object({
+    ...notebookNoteBase,
+    kind: z.literal("reminder"),
+    remindAt: timestampSchema.optional(),
+  }).strict(),
+  z.object({
+    ...notebookNoteBase,
+    kind: z.literal("freeform"),
+  }).strict(),
+]);
+
+const pendingReminderSchema = z.object({
+  id: uuidSchema,
+  text: z.string().min(1).max(500),
+  fireAt: timestampSchema,
+  createdAt: timestampSchema,
+  status: z.enum(["pending_confirm", "scheduled", "fired", "done", "snoozed", "cancelled"]),
+  ignoreQuietHours: z.boolean(),
+  localFireLabel: z.string().min(1).max(80).optional(),
+  snoozeUntil: timestampSchema.optional(),
+  confirmedAt: timestampSchema.optional(),
+}).strict();
+
+const lastTraceSchema = z.object({
+  at: timestampSchema,
+  steps: z.array(z.object({
+    tool: z.enum(["search", "fetch", "agent"]),
+    label: z.string().min(1).max(80).optional(),
+    url: httpsUrlSchema.optional(),
+    durationMs: z.number().int().min(0).max(120_000).optional(),
+    outcome: z.enum(["ok", "named_failure"]),
+    failure: z.string().min(1).max(200).optional(),
+  }).strict()).max(LODGE_TRACE_STEPS_CAP),
+  checkedLive: z.boolean(),
+}).strict();
+
+const encryptedSpaceHandleSchema = z.object({
+  version: z.literal(1),
+  ciphertext: ciphertextSchema,
+  wrappedAt: timestampSchema,
+}).strict();
+
+const pendingRememberPageSchema = z.object({
+  url: httpsUrlSchema,
+  kind: z.enum(["course", "events", "opportunity", "other"]).optional(),
+  title: z.string().min(1).max(200).optional(),
+  excerpt: z.string().min(1).max(500).optional(),
+  offeredAt: timestampSchema,
+}).strict();
+
+/**
+ * Lodge keys are first-class optional fields so consent 4 round-trips.
+ * Nested `.strict()` still rejects unknown keys. Consent 2/3 objects that
+ * omit Lodge keys remain valid. Encrypted space handles are persisted only;
+ * parse failures never include ciphertext in the thrown message.
+ */
 const conversationMemorySchema: z.ZodType<ConversationMemory> = z.object({
   consentedAt: timestampSchema.optional(),
-  consentVersion: z.literal(2).optional(),
+  consentVersion: z.union([z.literal(2), z.literal(3), z.literal(4)]).optional(),
   courses: z.array(z.string().min(1).max(80)).max(8),
   activeCourse: z.string().min(1).max(80).optional(),
   lastResearch: lastResearchMemorySchema.optional(),
   watches: z.array(watchMemorySchema).max(5),
   forgetRequestedAt: timestampSchema.optional(),
   updatedAt: timestampSchema,
+  school: z.string().min(1).max(120).optional(),
+  timezone: z.string().min(1).max(64).optional(),
+  quietHours: quietHoursSchema.optional(),
+  savedLinks: z.array(savedLinkSchema).max(LODGE_SAVED_LINKS_CAP).optional(),
+  notebook: z.array(notebookNoteSchema).max(LODGE_NOTEBOOK_CAP).optional(),
+  pendingReminders: z.array(pendingReminderSchema).max(LODGE_PENDING_REMINDERS_CAP).optional(),
+  lastTrace: lastTraceSchema.optional(),
+  encryptedSpaceHandle: encryptedSpaceHandleSchema.optional(),
+  pendingRememberPage: pendingRememberPageSchema.optional(),
+  rolesCity: z.string().min(1).max(80).optional(),
+  rolesOptIn: z.boolean().optional(),
+  checkInStep: z.enum(["school", "course_page", "events_page", "roles", "done"]).optional(),
+  checkInCompletedAt: timestampSchema.optional(),
+  checkInSkippedAt: timestampSchema.optional(),
+  lastRolesWatchAt: timestampSchema.optional(),
 }).strict();
+
+function parseConversationMemory(value: unknown): ConversationMemory {
+  const parsed = conversationMemorySchema.safeParse(value);
+  if (!parsed.success) {
+    throw new TypeError("Conversation memory failed validation.");
+  }
+  return parsed.data;
+}
 
 const outboxEnqueueRowsSchema = z.array(z.object({
   message_id: uuidSchema,
@@ -159,11 +301,11 @@ export class SupabaseBridgeStore implements BridgeStore, BridgeOutboxStore {
     const data = await this.#rpc("get conversation", "get_bridge_runtime_state", {
       p_conversation_key: opaqueKey(conversationKey, "conversationKey"),
     });
-    return data === null ? undefined : structuredClone(conversationMemorySchema.parse(data));
+    return data === null ? undefined : structuredClone(parseConversationMemory(data));
   }
 
   async putConversation(conversationKey: string, memory: ConversationMemory): Promise<void> {
-    const validated = structuredClone(conversationMemorySchema.parse(memory));
+    const validated = structuredClone(parseConversationMemory(memory));
     await this.#rpc("put conversation", "put_bridge_runtime_state", {
       p_conversation_key: opaqueKey(conversationKey, "conversationKey"),
       p_memory: validated,

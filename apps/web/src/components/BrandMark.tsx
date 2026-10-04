@@ -1,19 +1,15 @@
 type BrandMarkProps = {
-  compact?: boolean;
+  href?: string;
 };
 
-export function BrandMark({ compact = false }: BrandMarkProps) {
+export function BrandMark({ href = "/#arrive" }: BrandMarkProps) {
   return (
-    <div className="brand-mark" aria-label="CourseSignal">
-      <svg
-        className="brand-mark__glyph"
-        viewBox="0 0 48 32"
-        role="img"
-        aria-hidden="true"
-      >
-        <path d="M3 24.5C10 24.5 11 7 18 7s5 18 12 18S34 8 45 8" />
-      </svg>
-      {compact ? null : <span>CourseSignal</span>}
-    </div>
+    <a className="brand-mark" href={href}>
+      <picture>
+        <source srcSet="/logo.webp" type="image/webp" />
+        <img className="brand-mark__asset" src="/logo.png" alt="" width="36" height="36" decoding="async" />
+      </picture>
+      <span className="brand-mark__word">Lodge</span>
+    </a>
   );
 }

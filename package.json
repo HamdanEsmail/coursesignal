@@ -21,7 +21,7 @@
     "deploy:web": "npm run build --workspace @coursesignal/web && npx wrangler@4.146.0 pages deploy apps/web/dist --project-name=coursesignal",
     "build": "npm run build --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "test": "npm run test --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present && node --test tools/pages-direct-upload.test.mjs",
     "check": "npm run typecheck && npm run test && npm run build"
   },
   "devDependencies": {

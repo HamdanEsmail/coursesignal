@@ -1,6 +1,6 @@
 # Deployment map
 
-CourseSignal uses three deliberately separate cloud jobs. Keeping them separate prevents the public website from receiving messaging or provider credentials.
+Lodge uses three deliberately separate cloud jobs. Keeping them separate prevents the public website from receiving messaging or provider credentials.
 
 | Job | Service | What it owns |
 | --- | --- | --- |
@@ -12,14 +12,14 @@ Cloudflare Pages and request-only functions must not host the Photon bridge. Spe
 
 ## Release order
 
-1. Run `npm run check` and keep the real provider flags off.
+1. Run `npm run check` and keep the real provider flags off. `LODGE_MODE` stays off on Azure until the iPhone friend loop is confirmed.
 2. Create a dedicated Supabase project in the intended region.
 3. Apply every SQL file in `supabase/migrations` in filename order.
 4. Put `COURSESIGNAL_STORE=supabase`, `SUPABASE_URL`, and `SUPABASE_SERVICE_ROLE_KEY` only in the bridge host's secret manager.
 5. Deploy exactly one bridge replica with persistent storage and a private `/healthz` check.
 6. Prove restart recovery, duplicate suppression, renewed consent, `FORGET`, and a fresh iPhone round trip.
 7. Build the companion with `npm run build --workspace @coursesignal/web`.
-8. Publish `apps/web/dist` to the `coursesignal` Cloudflare Pages project. `npm run deploy:web` is the pinned manual direct-upload command.
+8. Publish `apps/web/dist` to the `coursesignal` Cloudflare Pages project. The live companion is `https://coursesignal-bzb.pages.dev`. `npm run deploy:web` remains the Wrangler command when CLI login is available; this deployment used authenticated Direct Upload.
 9. Replace the clearly labelled fixture receipt with a sanitized receipt from the same real demonstration run before submission.
 10. Time-box one judge identity in Photon, verify the live loop, and remove that access after review.
 
