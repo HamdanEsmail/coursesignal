@@ -16,7 +16,7 @@ export function EventLinks({ events }: EventLinksProps) {
         Add this week
       </a>
       <a className="text-link" href={fallback}>
-        Download if nothing happened
+        Save another way
       </a>
       {dated.map((event) => (
         <a className="text-link" key={`${event.title}-${event.start}`} href={googleTemplateUrl(event)}>

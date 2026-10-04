@@ -12,6 +12,8 @@ export type AppView = (typeof landingSections)[number]["id"];
 const aliases: Record<string, AppView> = {
   "": "arrive",
   arrive: "arrive",
+  day: "arrive",
+  wednesday: "arrive",
   start: "start",
   today: "arrive",
   connect: "start",

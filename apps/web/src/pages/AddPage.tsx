@@ -21,7 +21,7 @@ export function AddPage() {
   return (
     <div className="hosted-slip">
       <a className="skip-link" href="#add-main">
-        Skip to calendar file
+        Skip to this week
       </a>
       <header className="hosted-slip__mast">
         <BrandMark href="/" />

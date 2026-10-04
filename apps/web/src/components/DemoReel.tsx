@@ -28,6 +28,7 @@ export function DemoReel() {
           <video
             className="device__film"
             src="/demo.mp4"
+            poster="/poster.jpg"
             autoPlay
             muted
             loop
@@ -39,7 +40,7 @@ export function DemoReel() {
           <div className="device__placeholder">
             <PhoneReplay fixture={dueWeekFixture} autoplay={film === "missing"} />
             {film === "missing" ? (
-              <p className="device__slot">Your recording goes here. Drop a short portrait clip at apps/web/public/demo.mp4.</p>
+              <p className="device__slot">Hamdan’s portrait iPhone clip of texting Lodge belongs in this frame.</p>
             ) : null}
           </div>
         )}

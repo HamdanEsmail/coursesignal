@@ -1,10 +1,8 @@
 import { useEffect, useState } from "react";
 import { BrandMark } from "./components/BrandMark.js";
-import { CubbyFrieze } from "./components/CubbyFrieze.js";
+import { DayStage } from "./components/DayStage.js";
 import { DemoReel } from "./components/DemoReel.js";
 import { EventLinks } from "./components/EventLinks.js";
-import { Ledger } from "./components/Ledger.js";
-import { PhoneReplay } from "./components/PhoneReplay.js";
 import { FIRSTROLE_URL, dueWeekFixture, fixtures, rolesFixture, type LodgeFixture } from "./data/fixtures.js";
 import { slipPath } from "./lib/calendar.js";
 import { prefersReducedMotion } from "./lib/motion.js";
@@ -44,8 +42,8 @@ export function App() {
       <header className="mast">
         <BrandMark href="#arrive" />
         <nav className="mast__nav" aria-label="Lodge">
-          <a href="#demo">On iMessage</a>
-          <a href="#start">Start</a>
+          <a href="#start">How to start</a>
+          <a href="#roles">What happens</a>
           <a className="key-link" href={slipHref}>
             See a slip
           </a>
@@ -53,88 +51,65 @@ export function App() {
       </header>
 
       <main id="main-content" tabIndex={-1}>
-        <section className="band band--hero" id="arrive" aria-labelledby="hero-title">
-          <div className="shell hero">
-            <div className="hero__copy">
-              <h1 id="hero-title">The friend who looks it up.</h1>
-              <p>
-                Lodge lives in iMessage. Text a question. It reads the public page, sends a slip you
-                can tap, and the week can go on your calendar if you want it there.
-              </p>
-              <div className="hero__actions">
-                <a className="key-link" href="#demo">
-                  See it on iMessage
-                </a>
-                <a className="ghost-link" href={slipHref}>
-                  See a slip
-                </a>
-              </div>
-            </div>
-            <PhoneReplay fixture={dueWeekFixture} autoplay />
-          </div>
-          <CubbyFrieze />
-        </section>
+        <DayStage />
 
-        <section className="band band--feel" aria-labelledby="feel-title">
-          <div className="shell feel">
-            <div className="feel__copy">
-              <h2 id="feel-title">It feels like texting someone who already has the page open.</h2>
+        <section className="band band--start" id="start" aria-labelledby="start-title">
+          <div className="shell start">
+            <div>
+              <h2 id="start-title">Text START. Then talk like a person.</h2>
               <p>
-                No new app. You ask what’s due, what’s on Friday, or whether a listing is still
-                open. Lodge answers in the same thread: looking it up, reading the page, then the
-                dates.
+                Lodge waits for START before it looks anything up. Skip any question you do not want
+                to answer. Ordinary words are enough after that.
               </p>
-              <p>
-                If two pages disagree, it keeps both. It never guesses a winner. Tap the slip for
-                the full card.
-              </p>
-              <p>
-                <a className="key-link" href={slipHref}>
-                  Open this week’s slip
-                </a>
-              </p>
+              <p>Keep passwords and private school logins out of the thread.</p>
             </div>
-            <ol className="feel__beats">
+            <ul className="say-list">
               <li>
-                <strong>You text</strong>
-                <p>what’s due this week?</p>
+                <kbd>START</kbd>
+                <span>First hello. Lodge only explains itself until you send this.</span>
               </li>
               <li>
-                <strong>Lodge looks</strong>
-                <p>the public page, then the dates on it.</p>
+                <kbd>what's due this week?</kbd>
+                <span>It reads the public page you saved and sends a slip you can tap.</span>
               </li>
               <li>
-                <strong>A slip comes back</strong>
-                <p>Econ problem set, Friday 17:00. The syllabus says end of week — both stay.</p>
+                <kbd>save the week</kbd>
+                <span>A card opens. You approve. Lodge never adds a date by itself.</span>
               </li>
-            </ol>
-          </div>
-        </section>
-
-        <section className="band band--film" id="demo" aria-labelledby="demo-title">
-          <div className="shell film">
-            <div className="film__copy">
-              <h2 id="demo-title">See it on iMessage.</h2>
-              <p>
-                A short portrait of Hamdan texting Lodge. This is the product: the thread, not a
-                website to live in.
-              </p>
-            </div>
-            <DemoReel />
+              <li>
+                <kbd>remind me Friday 5</kbd>
+                <span>Lodge texts first. Thumbs-up is done.</span>
+              </li>
+              <li>
+                <kbd>any internships in Dubai?</kbd>
+                <span>A few public listings. Lodge never applies.</span>
+              </li>
+              <li>
+                <kbd>note that office hours moved</kbd>
+                <span>Pin a fact. Heart the last list to do the same.</span>
+              </li>
+              <li>
+                <kbd>FORGET</kbd>
+                <span>Begin erasing this chat’s notebook.</span>
+              </li>
+            </ul>
           </div>
         </section>
 
         <section className="band band--moments" id="roles" aria-labelledby="moments-title">
           <div className="shell">
-            <h2 id="moments-title">Three things Lodge actually does.</h2>
+            <h2 id="moments-title">What actually happens.</h2>
             <div className="moments">
               <article className="moment moment--remind">
-                <h3>Remind me</h3>
+                <h3>Lodge texts first</h3>
                 <p className="moment__you">remind me Friday 5</p>
-                <p className="moment__lodge">Lodge texts first. Thumbs-up is done. Quiet hours stay out of the night unless you asked to be woken.</p>
+                <p className="moment__lodge">
+                  A remind lands in the thread. Quiet hours stay out of the night unless you asked
+                  to be woken.
+                </p>
               </article>
               <article className="moment moment--week">
-                <h3>Keep the week</h3>
+                <h3>You keep the week</h3>
                 <ol className="slip-events">
                   {dueWeekFixture.events.map((event) => (
                     <li key={event.title}>
@@ -175,45 +150,6 @@ export function App() {
           </div>
         </section>
 
-        <section className="band band--start" id="start" aria-labelledby="start-title">
-          <div className="shell start">
-            <div>
-              <h2 id="start-title">Text START.</h2>
-              <p>
-                Lodge waits there before it looks anything up. Skip any question you don’t want to
-                answer. FORGET erases the notebook.
-              </p>
-              <p>Ordinary words are enough. Keep passwords and private school logins out of the thread.</p>
-            </div>
-            <ul className="say-list">
-              <li>
-                <kbd>START</kbd>
-                <span>First hello.</span>
-              </li>
-              <li>
-                <kbd>what’s due this week</kbd>
-                <span>It reads the public page you saved.</span>
-              </li>
-              <li>
-                <kbd>remind me Friday 5</kbd>
-                <span>Lodge texts first.</span>
-              </li>
-              <li>
-                <kbd>any internships in Dubai?</kbd>
-                <span>A few public listings, never an application.</span>
-              </li>
-              <li>
-                <kbd>note that office hours moved</kbd>
-                <span>Pin a fact. Heart the last list to do the same.</span>
-              </li>
-              <li>
-                <kbd>FORGET</kbd>
-                <span>Begin erasing this chat’s notebook.</span>
-              </li>
-            </ul>
-          </div>
-        </section>
-
         <section className="band band--rules" id="rules" aria-labelledby="rules-title">
           <div className="shell">
             <h2 id="rules-title">House rules, in plain words.</h2>
@@ -231,19 +167,30 @@ export function App() {
                 <p>Lodge reads what anyone could open. It never logs into school sites, types into a form, or applies for you.</p>
               </li>
               <li>
-                <h3>Slips are just the dates</h3>
-                <p>A card carries a title, a time, a place, and a page. No names. No phones. Photos of posters are read and not stored.</p>
+                <h3>You approve every date</h3>
+                <p>A slip is a title, a time, a place, and a page. The week goes on a calendar only when you tap Save.</p>
               </li>
             </ul>
+          </div>
+        </section>
+
+        <section className="band band--film" id="demo" aria-labelledby="demo-title">
+          <div className="shell film">
+            <div className="film__copy">
+              <h2 id="demo-title">The real thread, when we have it.</h2>
+              <p>
+                The phone above is a sample Wednesday. This frame is for Hamdan’s portrait recording
+                of the real thread.
+              </p>
+            </div>
+            <DemoReel />
           </div>
         </section>
 
         <section className="band band--judge" id="judge" aria-labelledby="judge-title" data-open={view === "judge" ? "true" : undefined}>
           <div className="shell">
             <h2 id="judge-title">For reviewers</h2>
-            <p>
-              Sample runs only. Students never need this page. Nothing here spends a live lookup.
-            </p>
+            <p>Sample questions only. Students use the day on the phone. Nothing here spends a live lookup.</p>
             <div className="choice-row" role="tablist" aria-label="Sample runs">
               {fixtures.map((item) => (
                 <button
@@ -260,7 +207,14 @@ export function App() {
             </div>
             <p className="asked-line">You asked: {judge.asked}</p>
             <p>{judge.summary}</p>
-            <Ledger fixture={judge} />
+            <ol className="judge-sees">
+              {judge.steps.map((step) => (
+                <li key={`${step.endpoint}-${step.label}`}>
+                  <strong>{step.studentSees}</strong>
+                  <span>{step.detail}</span>
+                </li>
+              ))}
+            </ol>
             {judge.disagreement ? <p>{judge.disagreement}</p> : null}
           </div>
         </section>
@@ -270,7 +224,7 @@ export function App() {
         <BrandMark href="#arrive" />
         <p>Lodge is a friend in iMessage.</p>
         <p>
-          <a href="#demo">On iMessage</a>
+          <a href="#start">How to start</a>
           <span aria-hidden="true"> · </span>
           <a href="#judge">Reviewers</a>
         </p>
