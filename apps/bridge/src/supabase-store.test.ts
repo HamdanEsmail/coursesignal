@@ -7,7 +7,12 @@ import {
   SupabaseBridgeStoreError,
   type SupabaseRpcClient,
 } from "./supabase-store.js";
-import type { ConversationMemory } from "./types.js";
+import {
+  LODGE_CONSENT_VERSION,
+  LODGE_NOTEBOOK_CAP,
+  type ConversationMemory,
+  type NotebookNote,
+} from "./types.js";
 
 const NOW = "2026-10-01T18:00:00.000Z";
 const EVENT_KEY = "a".repeat(64);
@@ -26,6 +31,9 @@ type RpcCall = {
   parameters?: Record<string, unknown>;
 };
 
+const SPACE_CIPHERTEXT = "ab".repeat(32);
+const LEAKY_CIPHERTEXT = "cipher-should-not-leak-9f3a";
+
 function memory(): ConversationMemory {
   return {
     consentedAt: NOW,
@@ -34,6 +42,106 @@ function memory(): ConversationMemory {
     activeCourse: "STAT 210",
     watches: [],
     updatedAt: NOW,
+  };
+}
+
+function notebookNotes(count: number): NotebookNote[] {
+  return Array.from({ length: count }, (_, index) => ({
+    id: `10000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+    kind: "freeform" as const,
+    text: `Note ${index + 1}`,
+    createdAt: NOW,
+  }));
+}
+
+function lodgeMemory(): ConversationMemory {
+  return {
+    consentedAt: NOW,
+    consentVersion: LODGE_CONSENT_VERSION,
+    courses: [],
+    watches: [],
+    updatedAt: NOW,
+    school: "NYU Abu Dhabi",
+    timezone: "Asia/Dubai",
+    quietHours: { start: "22:00", end: "08:00", enabled: true },
+    savedLinks: [{
+      id: "20000000-0000-4000-8000-000000000002",
+      kind: "course",
+      url: "https://example.edu/econ",
+      title: "Econ",
+      createdAt: NOW,
+      contentHash: "c".repeat(64),
+      lastFetchedAt: NOW,
+      watchEnabled: true,
+    }],
+    notebook: [{
+      id: "10000000-0000-4000-8000-000000000001",
+      kind: "opportunity",
+      text: "Internship in Dubai",
+      createdAt: NOW,
+      url: "https://example.com/jobs/1",
+      company: "Example",
+      listingTitle: "Intern",
+      applied: false,
+    }],
+    pendingReminders: [{
+      id: "30000000-0000-4000-8000-000000000003",
+      text: "Flu clinic",
+      fireAt: "2026-10-04T08:05:00.000Z",
+      createdAt: NOW,
+      status: "scheduled",
+      ignoreQuietHours: true,
+      localFireLabel: "Tomorrow, 12:05",
+    }],
+    lastTrace: {
+      at: NOW,
+      checkedLive: true,
+      steps: [{ tool: "fetch", outcome: "ok", url: "https://example.edu/econ", durationMs: 120 }],
+    },
+    encryptedSpaceHandle: {
+      version: 1,
+      ciphertext: SPACE_CIPHERTEXT,
+      wrappedAt: NOW,
+    },
+    pendingRememberPage: {
+      url: "https://example.edu/events",
+      kind: "events",
+      title: "Events",
+      excerpt: "Open night",
+      offeredAt: NOW,
+    },
+    rolesCity: "Dubai",
+    rolesOptIn: true,
+    checkInStep: "done",
+    checkInCompletedAt: NOW,
+    checkInSkippedAt: NOW,
+    lastRolesWatchAt: NOW,
+  };
+}
+
+function recordingClient(): {
+  client: SupabaseRpcClient;
+  calls: RpcCall[];
+  stored: { memory?: unknown };
+} {
+  const calls: RpcCall[] = [];
+  const stored: { memory?: unknown } = {};
+  return {
+    calls,
+    stored,
+    client: {
+      async rpc(functionName, parameters) {
+        calls.push({ functionName, parameters });
+        if (functionName === "put_bridge_runtime_state") {
+          stored.memory = structuredClone(parameters?.p_memory);
+          return { data: null, error: null };
+        }
+        if (functionName === "get_bridge_runtime_state") {
+          return { data: stored.memory ?? null, error: null };
+        }
+        return { data: null, error: null };
+      },
+    },
   };
 }
 
@@ -125,6 +233,110 @@ describe("SupabaseBridgeStore", () => {
     expect(fake.calls.at(-1)?.parameters?.p_memory).toMatchObject({
       courses: ["STAT 210"],
     });
+  });
+
+  it("persists consent 2 and 3 payloads that omit Lodge keys", async () => {
+    for (const consentVersion of [2, 3] as const) {
+      const recorded = recordingClient();
+      const store = new SupabaseBridgeStore(recorded.client);
+      const legacy = { ...memory(), consentVersion };
+      await store.putConversation(CONVERSATION_KEY, legacy);
+      expect(recorded.stored.memory).toEqual({
+        consentedAt: NOW,
+        consentVersion,
+        courses: ["STAT 210"],
+        activeCourse: "STAT 210",
+        watches: [],
+        updatedAt: NOW,
+      });
+      expect(recorded.stored.memory).not.toHaveProperty("school");
+      expect(recorded.stored.memory).not.toHaveProperty("notebook");
+      expect(recorded.stored.memory).not.toHaveProperty("encryptedSpaceHandle");
+      expect(recorded.stored.memory).not.toHaveProperty("checkInStep");
+      await expect(store.getConversation(CONVERSATION_KEY)).resolves.toEqual(recorded.stored.memory);
+    }
+  });
+
+  it("round-trips Lodge additive fields including consent 4", async () => {
+    const recorded = recordingClient();
+    const store = new SupabaseBridgeStore(recorded.client);
+    const lodge = lodgeMemory();
+    await store.putConversation(CONVERSATION_KEY, lodge);
+    lodge.notebook?.push({
+      id: "10000000-0000-4000-8000-000000000099",
+      kind: "freeform",
+      text: "mutated after put",
+      createdAt: NOW,
+    });
+
+    const persisted = recorded.stored.memory as ConversationMemory;
+    expect(persisted).toMatchObject({
+      consentVersion: 4,
+      school: "NYU Abu Dhabi",
+      timezone: "Asia/Dubai",
+      quietHours: { start: "22:00", end: "08:00", enabled: true },
+      rolesCity: "Dubai",
+      rolesOptIn: true,
+      checkInStep: "done",
+      checkInCompletedAt: NOW,
+      checkInSkippedAt: NOW,
+      lastRolesWatchAt: NOW,
+    });
+    expect(persisted.savedLinks).toHaveLength(1);
+    expect(persisted.notebook).toHaveLength(1);
+    expect(persisted.pendingReminders?.[0]?.status).toBe("scheduled");
+    expect(persisted.lastTrace?.steps[0]?.tool).toBe("fetch");
+    expect(persisted.pendingRememberPage?.kind).toBe("events");
+    expect(persisted.encryptedSpaceHandle).toEqual({
+      version: 1,
+      ciphertext: SPACE_CIPHERTEXT,
+      wrappedAt: NOW,
+    });
+
+    const loaded = await store.getConversation(CONVERSATION_KEY);
+    expect(loaded).toEqual(persisted);
+    loaded?.notebook?.push({
+      id: "10000000-0000-4000-8000-000000000098",
+      kind: "freeform",
+      text: "mutated after get",
+      createdAt: NOW,
+    });
+    expect((await store.getConversation(CONVERSATION_KEY))?.notebook).toHaveLength(1);
+  });
+
+  it("accepts a full notebook of 30 notes and rejects the 31st", async () => {
+    const recorded = recordingClient();
+    const store = new SupabaseBridgeStore(recorded.client);
+    const atCap = { ...lodgeMemory(), notebook: notebookNotes(LODGE_NOTEBOOK_CAP) };
+    await store.putConversation(CONVERSATION_KEY, atCap);
+    expect((recorded.stored.memory as ConversationMemory).notebook).toHaveLength(30);
+
+    await expect(store.putConversation(
+      CONVERSATION_KEY,
+      { ...lodgeMemory(), notebook: notebookNotes(LODGE_NOTEBOOK_CAP + 1) },
+    )).rejects.toThrow(/failed validation/i);
+    expect(recorded.calls.filter((call) => call.functionName === "put_bridge_runtime_state")).toHaveLength(1);
+  });
+
+  it("never puts an encrypted space handle into validation errors", async () => {
+    const fake = fakeClient(() => ({ data: null, error: null }));
+    const store = new SupabaseBridgeStore(fake.client);
+    const invalid = {
+      ...lodgeMemory(),
+      encryptedSpaceHandle: {
+        version: 1 as const,
+        ciphertext: LEAKY_CIPHERTEXT,
+        wrappedAt: NOW,
+      },
+    };
+
+    const error = await store.putConversation(CONVERSATION_KEY, invalid).catch((caught) => caught);
+    expect(error).toBeInstanceOf(TypeError);
+    expect(String(error)).toMatch(/failed validation/i);
+    expect(String(error)).not.toContain(LEAKY_CIPHERTEXT);
+    expect(String(error)).not.toContain(SPACE_CIPHERTEXT);
+    expect(JSON.stringify(error)).not.toContain(LEAKY_CIPHERTEXT);
+    expect(fake.calls).toEqual([]);
   });
 
   it("rejects plaintext identifiers before making a request", async () => {

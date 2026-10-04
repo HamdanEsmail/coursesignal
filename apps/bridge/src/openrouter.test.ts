@@ -1,13 +1,18 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  LODGE_SYSTEM_PROMPT,
   OPENROUTER_COMPLETION_TIMEOUT_MS,
   OPENROUTER_MAX_INPUT_PRICE_PER_MILLION,
   OPENROUTER_MAX_OUTPUT_PRICE_PER_MILLION,
   OPENROUTER_METADATA_TIMEOUT_MS,
   OPENROUTER_MODEL,
   OPENROUTER_PROVIDER,
+  OPENROUTER_TOOL_PROVIDERS,
   OpenRouterAnswerComposer,
+  OpenRouterToolClient,
   createOpenRouterAnswerComposerFromEnvironment,
+  createOpenRouterToolClientFromEnvironment,
+  isLodgeModeEnabled,
 } from "./openrouter.js";
 import type { EvidenceSource } from "./types.js";
 
@@ -558,5 +563,166 @@ describe("OpenRouterAnswerComposer", () => {
     });
     await expect(composer.compose(request())).resolves.toEqual({ attempted: true, answer: undefined });
     expect(outbound).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps the no-tools composer when LODGE_MODE is on", async () => {
+    vi.stubEnv("LODGE_MODE", "true");
+    const outbound = vi.fn()
+      .mockResolvedValueOnce(metadata())
+      .mockResolvedValueOnce(completion(validWireAnswer()));
+    const composer = new OpenRouterAnswerComposer({
+      enabled: true,
+      apiKey: API_KEY,
+      fetchImpl: outbound as unknown as typeof fetch,
+    });
+    await composer.compose(request());
+    const body = JSON.parse(outbound.mock.calls[1]![1].body as string);
+    expect(body.tools).toBeUndefined();
+    expect(body.tool_choice).toBeUndefined();
+    expect(body.provider.only).toEqual([OPENROUTER_PROVIDER]);
+    expect(body.messages[0].content).toContain("You are CourseSignal");
+    expect(isLodgeModeEnabled()).toBe(true);
+  });
+});
+
+const fixtureTools = [{
+  type: "function" as const,
+  function: {
+    name: "tinyfish_search",
+    description: "Search",
+    strict: true,
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: { query: { type: "string" } },
+      required: ["query"],
+    },
+  },
+}];
+
+function toolMetadata() {
+  return new Response(JSON.stringify({
+    data: {
+      endpoints: [
+        {
+          tag: "google-ai-studio",
+          model_id: OPENROUTER_MODEL,
+          pricing: { prompt: "0.0000000765", completion: "0.000000255" },
+          supported_parameters: ["tools", "tool_choice", "max_tokens"],
+        },
+        {
+          tag: OPENROUTER_PROVIDER,
+          model_id: OPENROUTER_MODEL,
+          pricing: { prompt: "0.0000000765", completion: "0.000000255" },
+          supported_parameters: ["response_format", "structured_outputs", "max_tokens"],
+        },
+      ],
+    },
+  }));
+}
+
+function toolCompletion(message: {
+  content?: string | null;
+  tool_calls?: unknown;
+  finish_reason?: string;
+}) {
+  return new Response(JSON.stringify({
+    id: "generation-test",
+    model: OPENROUTER_MODEL,
+    choices: [{
+      finish_reason: message.finish_reason ?? (message.tool_calls ? "tool_calls" : "stop"),
+      message: {
+        content: message.content ?? null,
+        tool_calls: message.tool_calls,
+      },
+    }],
+  }));
+}
+
+describe("LODGE_MODE and OpenRouterToolClient", () => {
+  it("defaults LODGE_MODE off and only builds the tool client when the flag is on", () => {
+    expect(isLodgeModeEnabled()).toBe(false);
+    expect(OPENROUTER_TOOL_PROVIDERS).toContain("google-ai-studio");
+    expect(LODGE_SYSTEM_PROMPT).toMatch(/You are Lodge/);
+    expect(LODGE_SYSTEM_PROMPT).toMatch(/not a STAT 210 tutor/);
+    expect(LODGE_SYSTEM_PROMPT).not.toContain("You are CourseSignal, a tutor");
+
+    vi.stubEnv("OPENROUTER_ENABLED", "true");
+    vi.stubEnv("OPENROUTER_API_KEY", API_KEY);
+    expect(createOpenRouterToolClientFromEnvironment()).toBeUndefined();
+    expect(createOpenRouterAnswerComposerFromEnvironment()).toBeInstanceOf(OpenRouterAnswerComposer);
+
+    vi.stubEnv("LODGE_MODE", "true");
+    expect(createOpenRouterToolClientFromEnvironment()).toBeInstanceOf(OpenRouterToolClient);
+
+    vi.stubEnv("OPENROUTER_ENABLED", "false");
+    expect(createOpenRouterToolClientFromEnvironment()).toBeUndefined();
+  });
+
+  it("re-sends tools every round and pins only tool-capable providers", async () => {
+    const outbound = vi.fn()
+      .mockResolvedValueOnce(toolMetadata())
+      .mockResolvedValueOnce(toolCompletion({
+        tool_calls: [{
+          id: "call-1",
+          type: "function",
+          function: { name: "tinyfish_search", arguments: "{\"query\":\"flu clinic\"}" },
+        }],
+      }))
+      .mockResolvedValueOnce(toolCompletion({
+        content: "Flu clinic Thursday.",
+        finish_reason: "stop",
+      }));
+    const client = new OpenRouterToolClient({
+      apiKey: API_KEY,
+      fetchImpl: outbound as unknown as typeof fetch,
+    });
+    const first = await client.complete({
+      messages: [{ role: "system", content: LODGE_SYSTEM_PROMPT }, { role: "user", content: "flu clinic?" }],
+      tools: fixtureTools,
+      timeoutMs: 8_000,
+    });
+    const second = await client.complete({
+      messages: [{ role: "user", content: "continue" }],
+      tools: fixtureTools,
+      timeoutMs: 8_000,
+    });
+
+    expect(first).toMatchObject({
+      ok: true,
+      finishReason: "tool_calls",
+      toolCalls: [{ id: "call-1", function: { name: "tinyfish_search" } }],
+    });
+    expect(second).toMatchObject({ ok: true, finishReason: "stop", content: "Flu clinic Thursday." });
+    expect(outbound).toHaveBeenCalledTimes(3);
+    for (const index of [1, 2]) {
+      const body = JSON.parse(outbound.mock.calls[index]![1].body as string);
+      expect(body.model).toBe(OPENROUTER_MODEL);
+      expect(body.tools).toEqual(fixtureTools);
+      expect(body.tool_choice).toBe("auto");
+      expect(body.provider).toEqual({
+        only: ["google-ai-studio"],
+        allow_fallbacks: false,
+        require_parameters: true,
+        data_collection: "deny",
+        zdr: true,
+        max_price: { prompt: 0.0765, completion: 0.255 },
+      });
+      expect(body.response_format).toBeUndefined();
+    }
+  });
+
+  it("fails closed when no allowlisted provider advertises tools", async () => {
+    const outbound = vi.fn().mockResolvedValueOnce(metadata());
+    const client = new OpenRouterToolClient({
+      apiKey: API_KEY,
+      fetchImpl: outbound as unknown as typeof fetch,
+    });
+    await expect(client.complete({
+      messages: [{ role: "user", content: "hello" }],
+      tools: fixtureTools,
+      timeoutMs: 8_000,
+    })).resolves.toEqual({ ok: false, reason: "no_tool_provider" });
+    expect(outbound).toHaveBeenCalledOnce();
   });
 });
