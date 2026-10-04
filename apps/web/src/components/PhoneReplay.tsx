@@ -18,7 +18,7 @@ export function PhoneReplay({ fixture, autoplay }: PhoneReplayProps) {
     if (!autoplay || reduce) return;
     const id = window.setInterval(() => {
       setIndex((current) => (current + 1) % frames.length);
-    }, 1400);
+    }, 1600);
     return () => window.clearInterval(id);
   }, [autoplay, fixture, frames.length]);
 
@@ -29,8 +29,9 @@ export function PhoneReplay({ fixture, autoplay }: PhoneReplayProps) {
   return (
     <figure className="phone">
       <div className="phone__bezel">
-        <div className="phone__ear" />
-        <ol className="phone__thread" aria-label="Sanitized Lodge thread">
+        <div className="phone__island" />
+        <p className="phone__who">Lodge</p>
+        <ol className="phone__thread" aria-label="A sample Lodge thread">
           {visible.map((frame) => (
             <li key={frame.id} className={`phone__row phone__row--${frame.role}`}>
               {frame.role === "you" ? (
@@ -38,10 +39,10 @@ export function PhoneReplay({ fixture, autoplay }: PhoneReplayProps) {
               ) : (
                 <article className="thread-slip">
                   <p>{frame.text}</p>
-                  {frame.finished && weekHref ? (
+                  {frame.finished && (slipHref || weekHref) ? (
                     <p className="thread-slip__meta">
-                      <a href={slipHref}>Open the limestone slip</a>
-                      <a href={weekHref}>Add this week</a>
+                      {slipHref ? <a href={slipHref}>Open the slip</a> : null}
+                      {weekHref ? <a href={weekHref}>Add this week</a> : null}
                     </p>
                   ) : null}
                 </article>
@@ -50,7 +51,7 @@ export function PhoneReplay({ fixture, autoplay }: PhoneReplayProps) {
           ))}
         </ol>
       </div>
-      <figcaption>Sanitized fixture. No names, phones, or conversation keys.</figcaption>
+      <figcaption>A sample week. No names.</figcaption>
     </figure>
   );
 }
@@ -82,13 +83,15 @@ function buildFrames(fixture: LodgeFixture): Frame[] {
 }
 
 function finishLine(fixture: LodgeFixture): string {
+  if (fixture.id === "due-week") {
+    return "Econ problem set, Friday 17:00. The syllabus says end of week — Lodge kept both.";
+  }
   if (fixture.events.length > 0) {
-    const titles = fixture.events.map((event) => event.title).join(" · ");
-    return fixture.disagreement ? `${titles}. ${fixture.disagreement}` : titles;
+    return fixture.events.map((event) => event.title).join(" · ");
   }
   if (fixture.roles) {
     return fixture.roles
-      .map((listing) => `${listing.company} — ${listing.title} (${listing.openness})`)
+      .map((listing) => `${listing.company} — ${listing.title}`)
       .join(" · ");
   }
   return fixture.summary;

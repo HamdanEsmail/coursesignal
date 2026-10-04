@@ -36,7 +36,7 @@ export const fixtures: LodgeFixture[] = [
     title: "Due this week",
     asked: "what's due this week?",
     summary:
-      "Two public dates from a saved course page and its calendar child. Lodge does not pick a winner when they disagree.",
+      "Two public dates from a saved course page. Lodge does not pick a winner when they disagree.",
     disagreement:
       "The syllabus says end of week. The calendar child says Friday 17:00. Both stay on the slip, with links.",
     steps: [
@@ -78,7 +78,7 @@ export const fixtures: LodgeFixture[] = [
         title: "Econ problem set",
         start: "2026-10-10T17:00:00",
         end: "2026-10-10T17:00:00",
-        where: "Saved page dropbox",
+        where: "Course dropbox",
         url: "https://openstax.org/details/books/principles-economics-3e",
         notes: "Calendar child: Friday 17:00. Syllabus: end of week. Lodge kept both.",
       },
@@ -88,7 +88,7 @@ export const fixtures: LodgeFixture[] = [
         end: "2026-10-09T16:00:00",
         where: "Baker 102",
         url: "https://openstax.org/details/books/principles-economics-3e",
-        notes: "Building named on the page, so the slip can carry one maps link.",
+        notes: "Baker 102, as named on the page.",
       },
     ],
   },
@@ -97,7 +97,7 @@ export const fixtures: LodgeFixture[] = [
     title: "Roles in Dubai",
     asked: "any internships in Dubai?",
     summary:
-      "Lodge texts 1–3 public openings with a still-open badge only where Agent ran. It never applies. FirstRole keeps the full shortlist.",
+      "Lodge texts a few public openings and only marks still-open when it actually checked. It never applies. FirstRole keeps the full shortlist.",
     steps: [
       {
         endpoint: "search",
@@ -166,7 +166,7 @@ export const fixtures: LodgeFixture[] = [
         company: "Harbor Press",
         title: "Editorial intern",
         openness: "unverified",
-        reason: "internship, Dubai — page was static; Agent did not run",
+        reason: "listing page, not checked live",
       },
     ],
   },
@@ -175,7 +175,7 @@ export const fixtures: LodgeFixture[] = [
     title: "Form walkthrough",
     asked: "what does this application ask?",
     summary:
-      "Read-only Agent lists questions, documents, deadline, and whether the form is still open. Lodge never types, signs in, or submits.",
+      "Lodge reads the form and lists the questions, documents, deadline, and whether it is still open. It never types, signs in, or submits.",
     steps: [
       {
         endpoint: "fetch",

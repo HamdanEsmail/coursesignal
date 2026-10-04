@@ -73,7 +73,7 @@ export const commandRows: CommandRow[] = [
 ];
 
 export const everydayAskHint =
-  "Ask in ordinary words — a deadline, a public course page, a poster photo, a building name, or internships in a city. Paste a public URL and Lodge offers to save it. Keep passwords, student IDs, and private LMS links out of the thread.";
+  "Ask in ordinary words — a deadline, a public course page, a poster photo, a building name, or internships in a city. Paste a public link and Lodge offers to save it. Keep passwords, student IDs, and private school logins out of the thread.";
 
 export const starterCommands = [
   "START",

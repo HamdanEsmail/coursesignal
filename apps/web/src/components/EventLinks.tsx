@@ -16,11 +16,11 @@ export function EventLinks({ events }: EventLinksProps) {
         Add this week
       </a>
       <a className="text-link" href={fallback}>
-        Download if the calendar file is blocked
+        Download if nothing happened
       </a>
       {dated.map((event) => (
         <a className="text-link" key={`${event.title}-${event.start}`} href={googleTemplateUrl(event)}>
-          Google · {event.title}
+          Google Calendar · {event.title}
         </a>
       ))}
     </div>

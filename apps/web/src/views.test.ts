@@ -1,51 +1,46 @@
 import { describe, expect, it } from "vitest";
-import { cubbies, viewFromHash } from "./views.js";
+import { landingSections, viewFromHash } from "./views.js";
 
 describe("viewFromHash", () => {
-  it("defaults to Arrive", () => {
+  it("defaults to the landing hero", () => {
     expect(viewFromHash("")).toBe("arrive");
     expect(viewFromHash("#")).toBe("arrive");
     expect(viewFromHash("#unknown")).toBe("arrive");
   });
 
-  it("maps the Lodge cubbies", () => {
-    expect(viewFromHash("#arrive")).toBe("arrive");
-    expect(viewFromHash("#run")).toBe("run");
+  it("keeps #demo and #judge as landing sections", () => {
     expect(viewFromHash("#demo")).toBe("demo");
-    expect(viewFromHash("#text")).toBe("text");
-    expect(viewFromHash("#desk")).toBe("desk");
-    expect(viewFromHash("#roles")).toBe("roles");
-    expect(viewFromHash("#rules")).toBe("rules");
     expect(viewFromHash("#judge")).toBe("judge");
+    expect(viewFromHash("#roles")).toBe("roles");
+    expect(viewFromHash("#start")).toBe("start");
+    expect(viewFromHash("#rules")).toBe("rules");
+    expect(viewFromHash("#arrive")).toBe("arrive");
   });
 
-  it("folds old field-guide hashes into cubbies", () => {
-    expect(viewFromHash("#start")).toBe("arrive");
+  it("folds old field-guide hashes into the product story", () => {
     expect(viewFromHash("#today")).toBe("arrive");
-    expect(viewFromHash("#connect")).toBe("arrive");
-    expect(viewFromHash("#example")).toBe("run");
-    expect(viewFromHash("#commands")).toBe("text");
-    expect(viewFromHash("#memory")).toBe("desk");
-    expect(viewFromHash("#watches")).toBe("desk");
+    expect(viewFromHash("#connect")).toBe("start");
+    expect(viewFromHash("#example")).toBe("demo");
+    expect(viewFromHash("#commands")).toBe("start");
+    expect(viewFromHash("#memory")).toBe("start");
+    expect(viewFromHash("#watches")).toBe("start");
     expect(viewFromHash("#privacy")).toBe("rules");
     expect(viewFromHash("#receipt")).toBe("judge");
     expect(viewFromHash("#sources")).toBe("judge");
   });
 });
 
-describe("cubbies", () => {
-  it("labels the pigeon-hole wall in Lodge voice", () => {
-    expect(cubbies.map((cubby) => cubby.label)).toEqual([
-      "Arrive",
-      "A run",
-      "#demo",
-      "What to text",
-      "The desk",
-      "Roles",
-      "House rules",
-      "#judge",
+describe("landingSections", () => {
+  it("labels the product story in Lodge voice", () => {
+    expect(landingSections.map((section) => section.id)).toEqual([
+      "arrive",
+      "demo",
+      "roles",
+      "start",
+      "rules",
+      "judge",
     ]);
-    const corpus = JSON.stringify(cubbies);
+    const corpus = JSON.stringify(landingSections);
     expect(corpus).not.toMatch(/CourseSignal|STAT 210|SOURCES|WATCH/);
   });
 });

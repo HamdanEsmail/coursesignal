@@ -12,14 +12,10 @@ export function SlipPage() {
       </a>
       <header className="hosted-slip__mast">
         <BrandMark href="/" />
-        <p>Paper from the wall</p>
+        <p>A slip from Lodge</p>
       </header>
       <main id="slip-main" className="paper-sheet" tabIndex={-1}>
-        {events.length === 0 ? (
-          <EmptySlip />
-        ) : (
-          <FilledSlip events={events} />
-        )}
+        {events.length === 0 ? <EmptySlip /> : <FilledSlip events={events} />}
       </main>
     </div>
   );
@@ -28,14 +24,14 @@ export function SlipPage() {
 function EmptySlip() {
   return (
     <>
-      <h1>This slip is blank.</h1>
+      <h1>This slip is empty.</h1>
       <p>
-        A Lodge card needs event fields on the URL: title, or a week of
-        title0 and start0. No phones, names, or conversation keys.
+        Lodge sends one when there is a date, a place, or a page to keep. This card never carries
+        phones or names.
       </p>
       <p>
         <a className="key-link" href="/">
-          Back to the wall
+          Back to Lodge
         </a>
       </p>
     </>
@@ -46,10 +42,7 @@ function FilledSlip({ events }: { events: LodgeEvent[] }) {
   return (
     <>
       <h1>{events.length === 1 ? events[0]?.title : "This week"}</h1>
-      <p>
-        Query-string event fields only. Lodge can edit this card in the thread
-        while it works; the tap lands here.
-      </p>
+      <p>Tap a slip in the thread and it lands here. Lodge can update the card while it works.</p>
       <ol className="slip-events">
         {events.map((event) => (
           <li key={`${event.title}-${event.start ?? event.url ?? ""}`}>
@@ -66,7 +59,7 @@ function FilledSlip({ events }: { events: LodgeEvent[] }) {
             {event.url ? (
               <p>
                 <a className="text-link" href={event.url} rel="noreferrer" target="_blank">
-                  Source page
+                  The page Lodge read
                 </a>
               </p>
             ) : null}

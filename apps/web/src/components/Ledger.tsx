@@ -8,9 +8,9 @@ export function Ledger({ fixture }: LedgerProps) {
   const total = fixture.steps.reduce((sum, step) => sum + step.ms, 0);
 
   return (
-    <div className="ledger" role="table" aria-label="Sanitized tool ledger">
+    <div className="ledger" role="table" aria-label="Sample lookup">
       <div className="ledger__head" role="row">
-        <span role="columnheader">Tool</span>
+        <span role="columnheader">Step</span>
         <span role="columnheader">On the slip</span>
         <span role="columnheader">ms</span>
       </div>
@@ -27,7 +27,7 @@ export function Ledger({ fixture }: LedgerProps) {
           <span role="cell">{step.status === "skipped" ? "—" : step.ms}</span>
         </div>
       ))}
-      <p className="ledger__sum">Fixture total {total} ms · checked-live · no live TinyFish from this page</p>
+      <p className="ledger__sum">Sample total {total} ms. Nothing live is fetched from this page.</p>
     </div>
   );
 }
