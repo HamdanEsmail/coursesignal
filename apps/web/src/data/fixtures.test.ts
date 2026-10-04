@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { FIRSTROLE_URL, fixtures } from "./fixtures.js";
+import { FIRSTROLE_URL, LODGE_REPO_URL, fixtures } from "./fixtures.js";
 import { buildIcs, parseEventQuery, toSearchParams } from "../lib/calendar.js";
 
 describe("Lodge fixtures", () => {
   it("keeps only sanitized traces and a FirstRole door", () => {
     expect(FIRSTROLE_URL).toBe("https://firstrole.hamdanesmail12-7a9.workers.dev");
+    expect(LODGE_REPO_URL).toBe("https://github.com/HamdanEsmail/coursesignal");
     expect(fixtures.map((fixture) => fixture.id)).toEqual(["due-week", "roles-dubai", "form-walk"]);
     const corpus = JSON.stringify(fixtures);
     expect(corpus).not.toMatch(/CourseSignal|STAT 210|\bSOURCES\b|\bWATCH\b|\+\d{8,}|@gmail\.com/i);

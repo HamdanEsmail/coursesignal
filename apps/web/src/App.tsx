@@ -3,7 +3,7 @@ import { BrandMark } from "./components/BrandMark.js";
 import { DayStage } from "./components/DayStage.js";
 import { DemoReel } from "./components/DemoReel.js";
 import { EventLinks } from "./components/EventLinks.js";
-import { FIRSTROLE_URL, dueWeekFixture, fixtures, rolesFixture, type LodgeFixture } from "./data/fixtures.js";
+import { FIRSTROLE_URL, LODGE_REPO_URL, dueWeekFixture, fixtures, rolesFixture, type LodgeFixture } from "./data/fixtures.js";
 import { slipPath } from "./lib/calendar.js";
 import { prefersReducedMotion } from "./lib/motion.js";
 import { viewFromHash, type AppView } from "./views.js";
@@ -46,6 +46,9 @@ export function App() {
           <a href="#roles">What happens</a>
           <a className="key-link" href={slipHref}>
             See a slip
+          </a>
+          <a href={LODGE_REPO_URL} rel="noreferrer" target="_blank">
+            GitHub
           </a>
         </nav>
       </header>
@@ -233,6 +236,10 @@ export function App() {
         <p>Lodge is a friend in iMessage.</p>
         <p>
           <a href="#start">How to start</a>
+          <span aria-hidden="true"> · </span>
+          <a href={LODGE_REPO_URL} rel="noreferrer" target="_blank">
+            GitHub
+          </a>
           <span aria-hidden="true"> · </span>
           <a href="#judge">Reviewers</a>
         </p>

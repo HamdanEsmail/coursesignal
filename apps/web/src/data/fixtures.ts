@@ -1,6 +1,7 @@
 import type { LodgeEvent } from "../lib/calendar.js";
 
 export const FIRSTROLE_URL = "https://firstrole.hamdanesmail12-7a9.workers.dev";
+export const LODGE_REPO_URL = "https://github.com/HamdanEsmail/coursesignal";
 
 export type TraceStep = {
   endpoint: "search" | "fetch" | "agent";
