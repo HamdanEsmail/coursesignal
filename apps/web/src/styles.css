@@ -1162,6 +1162,11 @@ a {
 .device {
   margin: 0;
   justify-self: center;
+  width: min(100%, 22rem);
+}
+
+.device__stage {
+  position: relative;
 }
 
 .device__bezel {
@@ -1181,9 +1186,20 @@ a {
 .device__film {
   display: block;
   width: 100%;
-  aspect-ratio: 9 / 16;
+  aspect-ratio: 4 / 5;
   object-fit: cover;
   background: #161116;
+}
+
+.device__play {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  padding: 6px 10px;
+  border: 0;
+  background: rgb(28 20 24 / 0.72);
+  color: var(--slip);
+  cursor: pointer;
 }
 
 .device__placeholder .phone {

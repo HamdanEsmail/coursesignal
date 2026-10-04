@@ -185,10 +185,10 @@ export function App() {
         <section className="band band--film" id="demo" aria-labelledby="demo-title">
           <div className="shell film">
             <div className="film__copy">
-              <h2 id="demo-title">The real thread, when we have it.</h2>
+              <h2 id="demo-title">The real thread.</h2>
               <p>
-                The phone above is a sample Wednesday. This frame is for Hamdan’s portrait recording
-                of the real thread.
+                The phone above is a sample Wednesday. This is Hamdan texting Lodge — a week, Save,
+                then a heart.
               </p>
             </div>
             <DemoReel />
