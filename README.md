@@ -19,7 +19,7 @@ Its answer pipeline keeps responsibilities explicit: TinyFish Search and Fetch f
 - `packages/provider-control` — metering, reservation, retry, and idempotency controls.
 - `design/concepts` — accepted visual specifications generated for this project.
 
-The production split and release order are documented in [`docs/deployment.md`](docs/deployment.md).
+The production split and release order are documented in [`docs/deployment.md`](docs/deployment.md). The public companion is at [coursesignal-bzb.pages.dev](https://coursesignal-bzb.pages.dev/). It is a fixture receipt and control surface, not a second chatbot.
 
 ## Local checks
 

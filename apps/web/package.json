@@ -11,8 +11,9 @@
   },
   "dependencies": {
     "@coursesignal/contracts": "0.1.0",
-    "@fontsource/ibm-plex-sans": "5.3.0",
-    "@fontsource/newsreader": "5.3.0",
+    "@fontsource/atkinson-hyperlegible": "5.3.0",
+    "@fontsource/ibm-plex-mono": "5.3.0",
+    "@fontsource/literata": "5.3.0",
     "lucide-react": "1.49.0",
     "react": "19.3.0",
     "react-dom": "19.3.0"

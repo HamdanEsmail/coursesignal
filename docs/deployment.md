@@ -19,7 +19,7 @@ Cloudflare Pages and request-only functions must not host the Photon bridge. Spe
 5. Deploy exactly one bridge replica with persistent storage and a private `/healthz` check.
 6. Prove restart recovery, duplicate suppression, renewed consent, `FORGET`, and a fresh iPhone round trip.
 7. Build the companion with `npm run build --workspace @coursesignal/web`.
-8. Publish `apps/web/dist` to the `coursesignal` Cloudflare Pages project. `npm run deploy:web` is the pinned manual direct-upload command.
+8. Publish `apps/web/dist` to the `coursesignal` Cloudflare Pages project. The live companion is `https://coursesignal-bzb.pages.dev`. `npm run deploy:web` remains the Wrangler command when CLI login is available; this deployment used authenticated Direct Upload.
 9. Replace the clearly labelled fixture receipt with a sanitized receipt from the same real demonstration run before submission.
 10. Time-box one judge identity in Photon, verify the live loop, and remove that access after review.
 

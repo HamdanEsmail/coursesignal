@@ -55,6 +55,8 @@ export type WatchMemory = {
 
 export type LastResearchMemory = {
   query: string;
+  /** Standing subject. Short follow-ups reuse it; a new question replaces it. */
+  topic?: string;
   mode: ResearchMode;
   course?: string;
   checkedAt: string;
@@ -64,7 +66,7 @@ export type LastResearchMemory = {
 
 export type ConversationMemory = {
   consentedAt?: string;
-  consentVersion?: 2;
+  consentVersion?: 2 | 3;
   courses: string[];
   activeCourse?: string;
   lastResearch?: LastResearchMemory;

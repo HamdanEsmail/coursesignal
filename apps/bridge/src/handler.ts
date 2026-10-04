@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { isControlCommand, parseCommand, type ParsedCommand } from "./commands.js";
 import { ConversationCoordinator } from "./coordinator.js";
 import { silentLogger } from "./logger.js";
-import { compact, createTinyFishResearchService } from "./research.js";
+import { cleanReceiptText, createTinyFishResearchService, displaySourceTitle, formatCheckedAt } from "./research.js";
 import { InMemoryBridgeStore } from "./store.js";
 import type {
   BridgeLogger,
@@ -18,11 +18,11 @@ import type {
 
 const SAFE_FAILURE_REPLY =
   "I could not verify that request from live sources. I have not guessed or started another paid run. Please try again later.";
-const CONSENT_VERSION = 2 as const;
+const CONSENT_VERSION = 3 as const;
 const CONSENT_PROMPT = [
   "Welcome to CourseSignal — an evidence-first student-life copilot in iMessage.",
   "",
-  "Before I research or remember a course, reply START. TinyFish checks public web sources. If the optional OpenRouter answer composer is enabled, it receives only your current sanitized question and short TinyFish evidence—not your phone number, prior chat, or saved course name.",
+  "Before I research or remember a course, reply START. TinyFish checks public web sources. If the optional OpenRouter answer composer is enabled, it receives your current sanitized question and short TinyFish evidence. A short follow-up may include the topic of the last answer, not your earlier messages. It does not receive your phone number or saved course name.",
   "",
   "I keep context separate for this chat and never submit coursework, purchase, book, or contact anyone.",
   "",
@@ -49,6 +49,7 @@ const HELP_REPLY = [
   "WATCH [source or topic] — opt into a change watch",
   "STOP — pause every proactive watch",
   "MEMORY — show what this chat remembers",
+  "EXAMPLE — look again for a worked problem on the last topic",
   "FORGET — begin full deletion",
 ].join("\n");
 
@@ -252,7 +253,10 @@ export class CourseSignalBridge {
         await this.#handleForget(conversationKey, memory, command.action, port);
         return;
       case "plan": {
-        const prompt = command.prompt || memory.lastResearch?.query || "review the active course topic";
+        const prompt = command.prompt
+          || memory.lastResearch?.topic
+          || memory.lastResearch?.query
+          || "review the active course topic";
         if (!command.prompt && !memory.lastResearch && !memory.activeCourse) {
           await port.send("Tell me the goal after PLAN, for example: PLAN prepare for Thursday’s probability quiz.");
           return;
@@ -273,16 +277,20 @@ export class CourseSignalBridge {
     mode: ResearchMode,
     port: ConversationPort,
   ): Promise<void> {
+    const resolved = mode === "answer"
+      ? resolveStudentTurn(prompt, memory.lastResearch?.topic)
+      : undefined;
+    const query = resolved?.query ?? prompt;
     await port.send(
       mode === "plan"
-        ? `On it — I’m checking live public sources${memory.activeCourse ? ` for ${memory.activeCourse}` : ""}, then I’ll build a source-linked plan.`
-        : `On it — I’m checking live public sources${memory.activeCourse ? ` for ${memory.activeCourse}` : ""}. I’ll reply with receipts, not guesses.`,
+        ? `Checking public sources${memory.activeCourse ? ` for ${memory.activeCourse}` : ""}, then I’ll build a study plan.`
+        : "Checking public sources for that now.",
     );
     await bestEffort(port.startTyping);
     let result: ResearchResult;
     try {
       result = await this.#research.research({
-        query: prompt,
+        query,
         mode,
         course: memory.activeCourse,
       });
@@ -298,7 +306,8 @@ export class CourseSignalBridge {
     }
 
     memory.lastResearch = {
-      query: prompt.slice(0, 1_200),
+      query: query.slice(0, 1_200),
+      topic: (resolved?.topic ?? memory.lastResearch?.topic ?? deriveTopic(prompt)).slice(0, 240),
       mode,
       course: memory.activeCourse,
       checkedAt: result.checkedAt,
@@ -447,8 +456,73 @@ function emptyMemory(now: Date): ConversationMemory {
 
 function hasCurrentConsent(
   memory: ConversationMemory | undefined,
-): memory is ConversationMemory & { consentedAt: string; consentVersion: 2 } {
+): memory is ConversationMemory & { consentedAt: string; consentVersion: 3 } {
   return Boolean(memory?.consentedAt) && memory?.consentVersion === CONSENT_VERSION;
+}
+
+const FOLLOW_UP_CUE =
+  /\b(?:examples?|simpler|easier|why|another|again|elaborate|expand|clarify|explainable|walk me through|show me|break (?:it |this )?down)\b/i;
+const NEW_QUESTION =
+  /^(?:what(?:'s| is| are)|who(?:'s| is| are)?|when|where|which|explain|define|describe|find|search|look up|how (?:much|many|do|does|can|should|is|are)|am i|is there|are there|tell me about)\b/i;
+const FOLLOW_UP_STOP = new Set([
+  "give", "please", "could", "would", "explain", "explainable", "example", "examples",
+  "simpler", "simple", "easier", "another", "show", "walk", "through", "that", "this",
+  "with", "from", "about", "what", "when", "where", "which", "have", "make", "want",
+  "need", "just", "more", "less", "also", "then", "than", "into", "your", "mine",
+  "worked", "step", "steps", "plain", "again", "why", "how", "does", "mean", "means",
+  "like", "using", "tell", "text", "look", "help", "can", "you", "for", "and", "the",
+  "get", "got", "one", "some", "any", "detail", "details", "info", "information",
+  "happen", "happens", "sense", "thanks", "thank",
+]);
+
+export type ResolvedTurn = {
+  query: string;
+  topic: string;
+  followUp: boolean;
+};
+
+/** Standing subject with question framing removed, for follow-ups and study plans. */
+export function deriveTopic(prompt: string): string {
+  const stripped = prompt
+    .replace(/^(?:please\s+)?(?:can you |could you |would you )?(?:please\s+)?(?:explain|define|describe|tell me about|what(?:'s| is| are)|how (?:do|does|is|are)|find|look up)\s+/i, "")
+    .replace(/[?!.]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return (stripped || prompt.trim()).slice(0, 240);
+}
+
+function novelTerms(text: string, topic: string): string[] {
+  const topicBlob = topic.toLowerCase();
+  return text
+    .toLowerCase()
+    .split(/[^a-z0-9+]+/)
+    .filter((word) => word.length >= 4 && !FOLLOW_UP_STOP.has(word) && !topicBlob.includes(word));
+}
+
+function isFollowUp(text: string, topic: string): boolean {
+  const words = text.split(/\s+/).filter(Boolean);
+  if (words.length === 0 || words.length > 18) return false;
+  if (novelTerms(text, topic).length > 0) return false;
+  if (NEW_QUESTION.test(text)) return false;
+  return FOLLOW_UP_CUE.test(text) || words.length <= 5;
+}
+
+/**
+ * Short anaphoric messages continue the last topic. A standalone question replaces it.
+ * The resolved query is what TinyFish and the composer see; it is not a chat transcript.
+ */
+export function resolveStudentTurn(prompt: string, previousTopic?: string): ResolvedTurn {
+  const text = prompt.replace(/\s+/g, " ").trim();
+  const topic = deriveTopic(text);
+  const standing = previousTopic?.replace(/\s+/g, " ").trim().slice(0, 240);
+  if (!standing || !isFollowUp(text, standing)) {
+    return { query: text, topic, followUp: false };
+  }
+  return {
+    query: `${standing} — ${text}`.slice(0, 1_200),
+    topic: standing,
+    followUp: true,
+  };
 }
 
 function normalizeCourseName(value: string): string {
@@ -476,12 +550,12 @@ function formatSources(memory: ConversationMemory): string {
   }
   return [
     "EVIDENCE RECEIPT",
-    `Checked: ${research.checkedAt}`,
-    `Endpoints: ${research.endpoints.join(" → ") || "none"}`,
+    `Checked ${formatCheckedAt(research.checkedAt)}`,
+    `TinyFish: ${research.endpoints.join(" → ") || "none"}`,
     "",
     ...research.sources.slice(0, 4).flatMap((source, index) => [
-      `${index + 1}. ${source.title} [${source.endpoint}]`,
-      compact(source.excerpt, 600),
+      `${index + 1}. ${displaySourceTitle(source.title, source.url)}`,
+      cleanReceiptText(source.excerpt, 420),
       source.url,
       "",
     ]),

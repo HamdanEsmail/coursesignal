@@ -29,7 +29,7 @@ type RpcCall = {
 function memory(): ConversationMemory {
   return {
     consentedAt: NOW,
-    consentVersion: 2,
+    consentVersion: 3,
     courses: ["STAT 210"],
     activeCourse: "STAT 210",
     watches: [],
@@ -94,6 +94,16 @@ describe("SupabaseBridgeStore", () => {
     await expect(store.completeInbound(EVENT_KEY, CLAIM_TOKEN)).rejects.toMatchObject({
       name: "SupabaseBridgeStoreError",
       code: "lease_lost",
+    });
+  });
+
+  it("still loads a version-2 memory row from before follow-up topics", async () => {
+    const legacy = { ...memory(), consentVersion: 2 as const };
+    const fake = fakeClient(() => ({ data: legacy, error: null }));
+    const store = new SupabaseBridgeStore(fake.client);
+    await expect(store.getConversation(CONVERSATION_KEY)).resolves.toMatchObject({
+      consentVersion: 2,
+      activeCourse: "STAT 210",
     });
   });
 

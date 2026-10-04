@@ -249,9 +249,20 @@ describe("OpenRouterAnswerComposer", () => {
     expect(serialized).not.toContain("uniqueItems");
     expect(serialized).not.toContain("anyOf");
     expect(serialized).not.toContain("oneOf");
+    expect(body.messages[0].content).toContain("numeric classroom problem");
+    expect(body.messages[0].content).toContain("Stay on the asked topic");
     expect(body.messages[0].content).toContain(
       "workedExample as the same complete evidence block when supported, otherwise return null",
     );
+    const userPayload = JSON.parse(body.messages[1].content);
+    expect(userPayload).toEqual({
+      question: expect.any(String),
+      intent: expect.any(String),
+      evidence: expect.any(Array),
+    });
+    expect(userPayload).not.toHaveProperty("course");
+    expect(userPayload).not.toHaveProperty("history");
+    expect(userPayload).not.toHaveProperty("phone");
     expect(body.messages[0].content).toContain(
       "Prefer a natural-language quote with the same key terms as the text over a bare equation",
     );

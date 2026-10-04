@@ -13,7 +13,6 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import type { DemoSettings } from "../state/useDemoSettings.js";
-import { BrandMark } from "./BrandMark.js";
 import { FixtureNotice } from "./FixtureNotice.js";
 
 const stateLabels: Record<ClaimState, string> = {
@@ -44,23 +43,24 @@ export function ReceiptView({ signal, settings, onBack, onUpdateSettings }: Rece
       <div className="receipt-toolbar">
         <button type="button" className="receipt-toolbar__back" onClick={onBack}>
           <ChevronLeft aria-hidden="true" size={20} />
-          iMessage demo
+          Example
         </button>
-        <BrandMark />
+        <p className="receipt-toolbar__label">Long form of SOURCES</p>
         <details className="receipt-more">
           <summary aria-label="About this receipt">
             <MoreHorizontal aria-hidden="true" size={21} />
           </summary>
-          <p>This receipt is a synthetic preview for product review.</p>
+          <p>This is a labeled example of a sourced reply, not a live phone log.</p>
         </details>
       </div>
 
-      <article className="receipt-paper">
+      <article className="receipt-paper worksheet">
         <FixtureNotice>
-          This receipt uses a synthetic course and public example sources. It is not a live message.
+          Labeled example of what a sourced reply used. Text SOURCES in iMessage for the live receipt in that chat.
         </FixtureNotice>
 
         <header className="receipt-hero">
+          <p className="worksheet__kicker">What this reply used</p>
           <h1>{signal.course} — {signal.title}</h1>
           <p>{signal.answer}</p>
           <div className="receipt-origin">
@@ -76,7 +76,7 @@ export function ReceiptView({ signal, settings, onBack, onUpdateSettings }: Rece
           </div>
         </header>
 
-        <ol className="receipt-actions" aria-label="Recommended study plan">
+        <ol className="receipt-actions" aria-label="How to use the sourced answer">
           {signal.actions.map((action, index) => (
             <li key={action.id}>
               <span className="receipt-actions__number">{index + 1}</span>
@@ -91,8 +91,8 @@ export function ReceiptView({ signal, settings, onBack, onUpdateSettings }: Rece
 
         <section className="receipt-section" aria-labelledby="receipt-evidence-title">
           <header className="receipt-section__header">
-            <h2 id="receipt-evidence-title">Evidence for this answer</h2>
-            <p>Every important claim is marked by how strongly the checked sources support it.</p>
+            <h2 id="receipt-evidence-title">Claims in this answer</h2>
+            <p>Each claim is marked verified, inferred, unknown, or conflicting — the same honesty SOURCES should show in the thread.</p>
           </header>
 
           <div className="claim-thread claim-thread--receipt">
@@ -134,7 +134,7 @@ export function ReceiptView({ signal, settings, onBack, onUpdateSettings }: Rece
         <section className="receipt-section receipt-sources" aria-labelledby="receipt-sources-title">
           <header className="receipt-section__header receipt-section__header--small">
             <h2 id="receipt-sources-title">Source receipts</h2>
-            <p>The sources shown in this fixture and the endpoint used to read them.</p>
+            <p>Public pages TinyFish Fetch actually read for this fixture.</p>
           </header>
 
           <div className="source-list">

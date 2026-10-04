@@ -1,67 +1,70 @@
 import { signalSchema, type Signal } from "@coursesignal/contracts";
 
+const checkedAt = "2026-10-02T18:53:17.000Z";
+
 const sample: Signal = {
-  id: "demo-stat-210-2026-10-01",
+  id: "demo-stat-210-conditional-2026-10-02",
   course: "STAT 210",
-  title: "Tonight's signal",
-  question: "What should I focus on tonight?",
+  title: "Conditional probability",
+  question: "What is conditional probability in statistics?",
   answer:
-    "Here is a focused plan based on the supplied demo syllabus and the current unit. Each step links to a source.",
+    "Conditional probability is the chance of B once you already know A happened. If 23% of days in a city are rainy, P(R)=0.23. After you learn the day is cloudy, you want P(R|C)—rain inside that smaller set of cloudy days.",
   actions: [
     {
-      id: "action-core",
-      title: "Review Unit 3 core concepts",
+      id: "action-define",
+      title: "Keep the sample space smaller",
       detail:
-        "Focus on discrete and continuous random variables, expected value, and variance. Work through the examples before attempting the exercises.",
-      sourceLabel: "Demo syllabus · Unit 3",
+        "Once A has occurred, only the outcomes inside A still count. P(B|A) asks how often B is true among those remaining outcomes.",
+      sourceLabel: "Pishro-Nik · Introduction to Probability",
     },
     {
-      id: "action-practice",
-      title: "Practice expectation and variance",
+      id: "action-example",
+      title: "Use the rainy-day numbers",
       detail:
-        "Complete exercises 4.1, 4.3, and 4.4, then explain why each formula applies in one sentence.",
-      sourceLabel: "OpenStax · Chapter 4",
+        "Public notes set P(R)=0.23 for a random day. Learning that the day is cloudy replaces that with P(R|C), not another guess.",
+      sourceLabel: "Pishro-Nik · Conditional probability",
     },
     {
-      id: "action-preview",
-      title: "Preview common distributions",
+      id: "action-next",
+      title: "Stay in the same thread",
       detail:
-        "Skim the binomial and normal distribution sections so the next lecture starts with familiar language.",
-      sourceLabel: "Demo syllabus · Week 6",
+        "A short follow-up such as “give me an example” stays on this topic. SOURCES shows the pages; PLAN builds a study path from them.",
+      sourceLabel: "CourseSignal thread",
     },
   ],
   claims: [
     {
-      id: "claim-topics",
+      id: "claim-definition",
       statement:
-        "Unit 3 covers discrete and continuous random variables, expected value, and variance.",
+        "Conditional probability is the chance of an event after extra information is known.",
       state: "verified",
-      sourceIds: ["source-syllabus"],
-      observedAt: "2026-10-01T14:15:00.000Z",
+      sourceIds: ["source-pishro", "source-openstax"],
+      observedAt: checkedAt,
     },
     {
-      id: "claim-practice",
-      statement: "Exercises 4.1, 4.3, and 4.4 match the current unit topics.",
-      state: "inferred",
-      sourceIds: ["source-openstax"],
-      observedAt: "2026-10-01T14:16:00.000Z",
-    },
-    {
-      id: "claim-emphasis",
+      id: "claim-numeric",
       statement:
-        "The available public sources do not reveal which problem types the instructor will emphasize.",
+        "If 23% of days are rainy, the unconditional rain chance is P(R)=0.23; extra information would replace that with a conditional value.",
+      state: "verified",
+      sourceIds: ["source-pishro"],
+      observedAt: checkedAt,
+    },
+    {
+      id: "claim-exam",
+      statement:
+        "Public notes do not say which wording an instructor will use on a quiz.",
       state: "unknown",
       sourceIds: [],
-      observedAt: "2026-10-01T14:16:00.000Z",
+      observedAt: checkedAt,
     },
   ],
   sources: [
     {
-      id: "source-syllabus",
-      title: "STAT 210 demonstration syllabus",
-      publisher: "Synthetic course fixture",
-      url: "https://example.edu/stat210/syllabus",
-      checkedAt: "2026-10-01T14:15:00.000Z",
+      id: "source-pishro",
+      title: "Conditional Probability",
+      publisher: "Hossein Pishro-Nik, Introduction to Probability",
+      url: "https://www.probabilitycourse.com/chapter1/1_4_0_conditional_probability.php",
+      checkedAt,
       endpoint: "fetch",
     },
     {
@@ -69,35 +72,56 @@ const sample: Signal = {
       title: "Introductory Statistics — probability topics",
       publisher: "OpenStax",
       url: "https://openstax.org/details/books/introductory-statistics-2e",
-      checkedAt: "2026-10-01T14:16:00.000Z",
+      checkedAt,
       endpoint: "fetch",
     },
   ],
   stages: [
     {
       endpoint: "search",
-      label: "Found authoritative sources",
-      detail: "Prioritized the supplied course source and an open textbook.",
+      label: "TinyFish Search found public notes",
+      detail: "Ranked an open probability text above homework-mill lesson pages.",
       status: "complete",
-      observedAt: "2026-10-01T14:15:00.000Z",
+      observedAt: "2026-10-02T18:52:46.000Z",
     },
     {
       endpoint: "fetch",
-      label: "Read the source material",
-      detail: "Extracted the current topics and supporting passages.",
+      label: "TinyFish Fetch read the pages",
+      detail: "Kept the definition and the numeric rainy-day problem; skipped unread IP PDFs.",
       status: "complete",
-      observedAt: "2026-10-01T14:15:30.000Z",
+      observedAt: checkedAt,
     },
     {
       endpoint: "agent",
       label: "Interactive catalogue not needed",
-      detail: "The demo sources were directly readable, so no paid Agent run was started.",
+      detail: "The pages were readable, so TinyFish Agent was not started.",
       status: "waiting",
     },
   ],
-  createdAt: "2026-10-01T14:14:00.000Z",
-  checkedAt: "2026-10-01T14:16:00.000Z",
-  watchState: "active",
+  createdAt: "2026-10-02T18:52:45.000Z",
+  checkedAt,
+  watchState: "off",
 };
 
 export const sampleSignal = signalSchema.parse(sample);
+
+export type DemoBubble =
+  | { role: "student"; text: string }
+  | { role: "ack"; text: string }
+  | { role: "signal"; text: string };
+
+/** Fixture thread that shows the iMessage product, not a second chatbot. */
+export const demoThread: DemoBubble[] = [
+  { role: "student", text: "What is conditional probability in statistics?" },
+  { role: "ack", text: "Checking public sources for that now." },
+  {
+    role: "signal",
+    text: "Conditional probability is the chance of B once you already know A happened. Notes write that as P(B|A).",
+  },
+  { role: "student", text: "Give me an explainable example?" },
+  { role: "ack", text: "Checking public sources for that now." },
+  {
+    role: "signal",
+    text: "If 23% of days in a city are rainy, P(R)=0.23. After you learn the day is cloudy, you want P(R|C)—rain inside that smaller set of cloudy days.",
+  },
+];

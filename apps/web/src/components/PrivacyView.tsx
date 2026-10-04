@@ -1,7 +1,6 @@
-import { DatabaseZap, KeyRound, MessageSquareLock, RotateCcw, ShieldCheck } from "lucide-react";
+import { RotateCcw } from "lucide-react";
 import { useState } from "react";
 import type { DemoSettings } from "../state/useDemoSettings.js";
-import { FixtureNotice } from "./FixtureNotice.js";
 import { PageIntro } from "./PageIntro.js";
 
 type PrivacyViewProps = {
@@ -14,43 +13,66 @@ export function PrivacyView({ settings, onUpdateSettings, onReset }: PrivacyView
   const [confirmReset, setConfirmReset] = useState(false);
 
   return (
-    <main className="product-page" id="main-content" tabIndex={-1}>
-      <PageIntro
-        title="Privacy"
-        description="The honest boundary between Apple Messages, Photon, CourseSignal, TinyFish, and the optional OpenRouter composer—plus controls that stay understandable."
-        aside={<span className="status-token status-token--ready">Transport verified</span>}
-      />
-      <FixtureNotice>No phone identity, iMessage content, or private course material appears in this preview.</FixtureNotice>
+    <main className="guide-page" id="main-content" tabIndex={-1}>
+      <article className="worksheet">
+        <PageIntro
+          kicker="In plain words"
+          title="What happens to a text"
+          description="Plain words for the path a message takes after you send it. CourseSignal is useful because it can read public pages — that also means the text leaves Apple’s end-to-end Messages boundary."
+        />
 
-      <section className="privacy-principles" aria-label="Privacy principles">
-        <article>
-          <MessageSquareLock aria-hidden="true" />
-          <h2>No encryption theatre</h2>
-          <p>Messages leave Apple’s end-to-end boundary when Photon and CourseSignal process them. The product says so plainly.</p>
-        </article>
-        <article>
-          <KeyRound aria-hidden="true" />
-          <h2>Minimum provider context</h2>
-          <p>TinyFish receives the smallest public-web research request needed. If answer composition is enabled, OpenRouter receives only the current sanitized question and short TinyFish evidence—not a phone number, prior chat, or saved course name.</p>
-        </article>
-        <article>
-          <ShieldCheck aria-hidden="true" />
-          <h2>User-controlled memory</h2>
-          <p>Course context is isolated per person, visible in Memory, and removable without contacting support.</p>
-        </article>
-      </section>
+        <ol className="privacy-steps">
+          <li>
+            <h2>You send it in Messages</h2>
+            <p>
+              You text the managed CourseSignal line like any other iMessage.
+              This website never sees that thread and never shows your number.
+            </p>
+          </li>
+          <li>
+            <h2>It leaves Apple’s lock</h2>
+            <p>
+              Photon and CourseSignal have to read the text to research it.
+              Messages between two iPhones stay end-to-end encrypted; a
+              copilot in the thread cannot.
+            </p>
+          </li>
+          <li>
+            <h2>TinyFish sees a research request</h2>
+            <p>
+              TinyFish Search and Fetch look at public web pages for the
+              question. They do not get your phone number or a saved course
+              name as identity.
+            </p>
+          </li>
+          <li>
+            <h2>Gemma may see this question</h2>
+            <p>
+              If the optional answer composer is on, OpenRouter’s Gemma model
+              receives the current sanitized question and short TinyFish
+              evidence. A short follow-up may include the last topic — not
+              your earlier messages, and not your number.
+            </p>
+          </li>
+          <li>
+            <h2>Erase with FORGET</h2>
+            <p>
+              Text FORGET, then FORGET CONFIRM within ten minutes. That
+              deletes this chat’s course names, latest receipt, watches, and
+              consent. Reply START if you want to use it again.
+            </p>
+          </li>
+        </ol>
 
-      <div className="page-grid">
         <section className="section-panel" aria-labelledby="retention-title">
           <div className="section-panel__heading">
             <div>
-              <h2 id="retention-title">Preview retention choice</h2>
-              <p>This local choice demonstrates the intended product control.</p>
+              <h2 id="retention-title">How long this demo keeps a receipt</h2>
+              <p>A local choice only. Live chats follow FORGET, not this switch.</p>
             </div>
-            <DatabaseZap aria-hidden="true" size={23} />
           </div>
           <fieldset className="retention-options">
-            <legend>Keep future source receipts for</legend>
+            <legend className="sr-only">Keep future source receipts for</legend>
             {[7, 30].map((days) => (
               <label key={days}>
                 <input
@@ -60,56 +82,46 @@ export function PrivacyView({ settings, onUpdateSettings, onReset }: PrivacyView
                   checked={settings.retentionDays === days}
                   onChange={() => onUpdateSettings({ retentionDays: days as 7 | 30 })}
                 />
-                <span><strong>{days} days</strong><small>{days === 7 ? "Recommended for the pilot" : "Useful for a longer review"}</small></span>
+                <span>
+                  <strong>{days} days</strong>
+                  <small>{days === 7 ? "Shorter demo window" : "Longer demo window"}</small>
+                </span>
               </label>
             ))}
           </fieldset>
         </section>
 
-        <section className="section-panel" aria-labelledby="data-status-title">
-          <div className="section-panel__heading">
-            <div>
-              <h2 id="data-status-title">Current data status</h2>
-              <p>What exists in this build right now.</p>
-            </div>
-            <ShieldCheck aria-hidden="true" size={23} />
+        <section className="reset-panel" aria-labelledby="reset-title">
+          <div>
+            <h2 id="reset-title">Reset this browser’s demo</h2>
+            <p>Clears local watch, retention, and course-memory toggles on this site.</p>
           </div>
-          <dl className="data-ledger">
-            <div><dt>iPhone enrollment</dt><dd>Verified in Photon; hidden here</dd></div>
-            <div><dt>Live iMessage content</dt><dd>Not retained from the transport proof</dd></div>
-            <div><dt>Fixture preferences</dt><dd>Local browser only</dd></div>
-            <div><dt>OpenRouter composer</dt><dd>Optional, server-only, bounded evidence</dd></div>
-            <div><dt>Reviewer access</dt><dd>Not active</dd></div>
-          </dl>
+          {confirmReset ? (
+            <div className="inline-confirm inline-confirm--horizontal" role="alert">
+              <p>Reset all local demo choices?</p>
+              <div>
+                <button
+                  className="button button--danger"
+                  type="button"
+                  onClick={() => {
+                    onReset();
+                    setConfirmReset(false);
+                  }}
+                >
+                  Reset demo
+                </button>
+                <button className="button button--secondary" type="button" onClick={() => setConfirmReset(false)}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button className="button button--secondary" type="button" onClick={() => setConfirmReset(true)}>
+              <RotateCcw aria-hidden="true" size={16} /> Reset local demo
+            </button>
+          )}
         </section>
-      </div>
-
-      <section className="reset-panel" aria-labelledby="reset-title">
-        <div>
-          <h2 id="reset-title">Reset this local preview</h2>
-          <p>Clear the watch, retention, and course-memory choices stored by this browser.</p>
-        </div>
-        {confirmReset ? (
-          <div className="inline-confirm inline-confirm--horizontal" role="alert">
-            <p>Reset all local preview choices?</p>
-            <div>
-              <button
-                className="button button--danger"
-                type="button"
-                onClick={() => {
-                  onReset();
-                  setConfirmReset(false);
-                }}
-              >Reset preview</button>
-              <button className="button button--secondary" type="button" onClick={() => setConfirmReset(false)}>Cancel</button>
-            </div>
-          </div>
-        ) : (
-          <button className="button button--secondary" type="button" onClick={() => setConfirmReset(true)}>
-            <RotateCcw aria-hidden="true" size={16} /> Reset local preview
-          </button>
-        )}
-      </section>
+      </article>
     </main>
   );
 }

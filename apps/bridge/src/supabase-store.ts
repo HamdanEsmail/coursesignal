@@ -46,6 +46,7 @@ const watchMemorySchema = z.object({
 
 const lastResearchMemorySchema = z.object({
   query: z.string().min(1).max(1_200),
+  topic: z.string().min(1).max(240).optional(),
   mode: z.enum(["answer", "plan"]),
   course: z.string().min(1).max(80).optional(),
   checkedAt: timestampSchema,
@@ -55,7 +56,7 @@ const lastResearchMemorySchema = z.object({
 
 const conversationMemorySchema: z.ZodType<ConversationMemory> = z.object({
   consentedAt: timestampSchema.optional(),
-  consentVersion: z.literal(2).optional(),
+  consentVersion: z.union([z.literal(2), z.literal(3)]).optional(),
   courses: z.array(z.string().min(1).max(80)).max(8),
   activeCourse: z.string().min(1).max(80).optional(),
   lastResearch: lastResearchMemorySchema.optional(),

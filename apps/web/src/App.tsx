@@ -1,149 +1,122 @@
-import { Menu, Smartphone, X } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { Menu, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { BrandMark } from "./components/BrandMark.js";
-import { ConnectView } from "./components/ConnectView.js";
-import { EvidenceRail } from "./components/EvidenceRail.js";
+import { CommandsView } from "./components/CommandsView.js";
+import { ExampleView } from "./components/ExampleView.js";
 import { MemoryView } from "./components/MemoryView.js";
 import { PrivacyView } from "./components/PrivacyView.js";
 import { ReceiptView } from "./components/ReceiptView.js";
-import { Sidebar, type ViewId } from "./components/Sidebar.js";
-import { SignalView } from "./components/SignalView.js";
-import { WatchesView } from "./components/WatchesView.js";
+import { Sidebar } from "./components/Sidebar.js";
+import { StartView } from "./components/StartView.js";
 import { sampleSignal } from "./data/sampleSignal.js";
 import { useDemoSettings } from "./state/useDemoSettings.js";
-
-const viewIds = new Set<ViewId>(["today", "receipt", "connect", "watches", "memory", "privacy"]);
-const viewTitles: Record<ViewId, string> = {
-  today: "iMessage demo",
-  receipt: "Evidence receipt",
-  connect: "Connect iPhone",
-  watches: "Watches",
-  memory: "Memory",
-  privacy: "Privacy",
-};
-
-function readHash(): ViewId {
-  const value = window.location.hash.slice(1) as ViewId;
-  return viewIds.has(value) ? value : "receipt";
-}
+import { type AppView, viewFromHash } from "./views.js";
 
 export function App() {
-  const [activeView, setActiveView] = useState<ViewId>(readHash);
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [view, setView] = useState<AppView>(() => viewFromHash());
+  const [menuOpen, setMenuOpen] = useState(false);
+  const skipInitialFocus = useRef(true);
   const { settings, updateSettings, resetSettings } = useDemoSettings();
 
   useEffect(() => {
-    const syncRoute = () => {
-      setActiveView(readHash());
-      setMobileMenuOpen(false);
+    const sync = () => {
+      const next = viewFromHash();
+      setView(next);
+      const current = window.location.hash.replace(/^#/, "").trim().toLowerCase();
+      if (current !== next) {
+        window.history.replaceState(null, "", `#${next}`);
+      }
     };
-    window.addEventListener("hashchange", syncRoute);
-    window.addEventListener("popstate", syncRoute);
-    return () => {
-      window.removeEventListener("hashchange", syncRoute);
-      window.removeEventListener("popstate", syncRoute);
-    };
+    window.addEventListener("hashchange", sync);
+    sync();
+    return () => window.removeEventListener("hashchange", sync);
   }, []);
 
   useEffect(() => {
-    if (!mobileMenuOpen) return;
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setMobileMenuOpen(false);
-    };
-    window.addEventListener("keydown", closeOnEscape);
-    return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [mobileMenuOpen]);
+    setMenuOpen(false);
+    if (skipInitialFocus.current) {
+      skipInitialFocus.current = false;
+      return;
+    }
+    const main = document.getElementById("main-content");
+    main?.focus({ preventScroll: true });
+  }, [view]);
 
-  useEffect(() => {
-    document.title = `CourseSignal — ${viewTitles[activeView]}`;
-  }, [activeView]);
-
-  const navigate = useCallback((view: ViewId) => {
-    setActiveView(view);
-    setMobileMenuOpen(false);
-    if (window.location.hash !== `#${view}`) window.location.hash = view;
-    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
-    window.setTimeout(() => document.getElementById("main-content")?.focus({ preventScroll: true }), 0);
-  }, []);
-
-  let content;
-  switch (activeView) {
-    case "receipt":
-      content = (
-        <ReceiptView
-          signal={sampleSignal}
-          settings={settings}
-          onBack={() => navigate("today")}
-          onUpdateSettings={updateSettings}
-        />
-      );
-      break;
-    case "connect":
-      content = <ConnectView />;
-      break;
-    case "watches":
-      content = <WatchesView settings={settings} onUpdateSettings={updateSettings} />;
-      break;
-    case "memory":
-      content = <MemoryView settings={settings} onUpdateSettings={updateSettings} />;
-      break;
-    case "privacy":
-      content = (
-        <PrivacyView
-          settings={settings}
-          onUpdateSettings={updateSettings}
-          onReset={resetSettings}
-        />
-      );
-      break;
-    default:
-      content = (
-        <>
-          <SignalView signal={sampleSignal} onOpenReceipt={() => navigate("receipt")} />
-          <EvidenceRail signal={sampleSignal} />
-        </>
-      );
-  }
+  const navigate = (next: AppView) => {
+    window.location.hash = next;
+    setView(next);
+  };
 
   return (
-    <div className={`app-shell app-shell--${activeView}`}>
-      <a className="skip-link" href="#main-content">Skip to main content</a>
+    <div className="app-shell">
+      <a className="skip-link" href="#main-content">
+        Skip to content
+      </a>
       <header className="masthead">
-        <button className="brand-button" type="button" onClick={() => navigate("receipt")} aria-label="CourseSignal receipt home">
+        <button
+          type="button"
+          className="brand-button"
+          onClick={() => navigate("start")}
+        >
           <BrandMark />
         </button>
-        <div className="connection-state connection-state--verified" aria-label="iMessage transport verified">
-          <Smartphone aria-hidden="true" size={20} strokeWidth={1.6} />
-          <span>
-            <strong>iMessage verified</strong>
-            <small>Listener offline between tests</small>
-          </span>
+        <p className="connection-state connection-state--verified">
           <i aria-hidden="true" />
-        </div>
-        <div className="masthead__account" aria-label="Fixture preview account">
-          <span>Fixture</span>
-          <span className="avatar" aria-hidden="true">F</span>
-        </div>
+          <span>
+            <strong>Always on</strong>
+            <small>Text anytime from iMessage</small>
+          </span>
+        </p>
         <button
-          className="mobile-menu-button"
           type="button"
-          aria-expanded={mobileMenuOpen}
+          className="mobile-menu-button"
+          aria-expanded={menuOpen}
           aria-controls="primary-navigation"
-          aria-label={mobileMenuOpen ? "Close navigation" : "Open navigation"}
-          onClick={() => setMobileMenuOpen((open) => !open)}
+          onClick={() => setMenuOpen((open) => !open)}
         >
-          {mobileMenuOpen ? <X aria-hidden="true" /> : <Menu aria-hidden="true" />}
+          {menuOpen ? <X aria-hidden="true" size={20} /> : <Menu aria-hidden="true" size={20} />}
+          <span className="sr-only">{menuOpen ? "Close menu" : "Open menu"}</span>
         </button>
       </header>
 
-      <div className={`workspace workspace--${activeView} ${mobileMenuOpen ? "workspace--menu-open" : ""}`}>
-        {mobileMenuOpen ? (
-          <button className="mobile-scrim" type="button" aria-label="Close navigation" onClick={() => setMobileMenuOpen(false)} />
+      <div className={`workspace${menuOpen ? " workspace--menu-open" : ""}`}>
+        {menuOpen ? (
+          <button
+            type="button"
+            className="mobile-scrim"
+            aria-label="Close menu"
+            onClick={() => setMenuOpen(false)}
+          />
         ) : null}
-        <div id="primary-navigation">
-          <Sidebar active={activeView} onSelect={navigate} />
-        </div>
-        {content}
+        <Sidebar view={view} onNavigate={navigate} />
+        {view === "start" ? (
+          <StartView
+            onOpenExample={() => navigate("example")}
+            onOpenCommands={() => navigate("commands")}
+          />
+        ) : null}
+        {view === "example" ? (
+          <ExampleView onOpenSources={() => navigate("receipt")} />
+        ) : null}
+        {view === "commands" ? <CommandsView /> : null}
+        {view === "receipt" ? (
+          <ReceiptView
+            signal={sampleSignal}
+            settings={settings}
+            onBack={() => navigate("example")}
+            onUpdateSettings={updateSettings}
+          />
+        ) : null}
+        {view === "memory" ? (
+          <MemoryView settings={settings} onUpdateSettings={updateSettings} />
+        ) : null}
+        {view === "privacy" ? (
+          <PrivacyView
+            settings={settings}
+            onUpdateSettings={updateSettings}
+            onReset={resetSettings}
+          />
+        ) : null}
       </div>
     </div>
   );

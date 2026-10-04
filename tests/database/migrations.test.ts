@@ -118,7 +118,7 @@ describe("CourseSignal core migration", () => {
     const conversationKey = "c".repeat(64);
     const state = {
       consentedAt: "2026-10-01T18:00:00.000Z",
-      consentVersion: 2,
+      consentVersion: 3,
       courses: ["STAT 210"],
       activeCourse: "STAT 210",
       watches: [],

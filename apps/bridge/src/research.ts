@@ -12,12 +12,19 @@ const MAX_DEFAULT_REPLY_CHARACTERS = 900;
 const MAX_QUERY_CHARACTERS = 1_200;
 const MAX_AGENT_STEPS = 12;
 const MAX_AGENT_SECONDS = 90;
+export const TINYFISH_CALL_TIMEOUT_MS = 45_000;
 const BLOCKED_OR_LOW_SIGNAL_HOSTS = new Set([
+  "bartleby.com",
+  "brainly.com",
+  "chegg.com",
   "coursehero.com",
   "facebook.com",
   "instagram.com",
+  "numerade.com",
   "quizlet.com",
+  "slader.com",
   "studocu.com",
+  "study.com",
   "tiktok.com",
   "youtube.com",
 ]);
@@ -175,28 +182,50 @@ export class BoundedAgentEscalator implements AgentEscalator {
   }
 }
 
+export async function withTimeout<T>(work: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      work,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`${label} timed out`)), ms);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 export class TinyFishGateway implements SearchFetchGateway, AgentRunner {
   readonly #client: TinyFish;
+  readonly #timeoutMs: number;
 
-  constructor(client: TinyFish) {
+  constructor(client: TinyFish, options?: { timeoutMs?: number }) {
     this.#client = client;
+    this.#timeoutMs = options?.timeoutMs ?? TINYFISH_CALL_TIMEOUT_MS;
   }
 
   async search(query: string): Promise<SearchHit[]> {
-    const response = await this.#client.search.query({
-      query,
-      location: "AE",
-      language: "en",
-      purpose: "Find authoritative public sources for a concise evidence-backed student answer",
-    });
-    return response.results.map((result) => ({
-      title: result.title,
-      url: result.url,
-      snippet: result.snippet,
-    }));
+    return withTimeout((async () => {
+      const response = await this.#client.search.query({
+        query,
+        location: "AE",
+        language: "en",
+        purpose: "Find authoritative public sources for a concise evidence-backed student answer",
+      });
+      return response.results.map((result) => ({
+        title: result.title,
+        url: result.url,
+        snippet: result.snippet,
+      }));
+    })(), this.#timeoutMs, "TinyFish Search");
   }
 
   async fetch(urls: string[], query: string): Promise<FetchedPage[]> {
+    return withTimeout(this.#fetchPages(urls, query), this.#timeoutMs, "TinyFish Fetch");
+  }
+
+  async #fetchPages(urls: string[], query: string): Promise<FetchedPage[]> {
     const baseRequest = {
       urls,
       format: FetchFormat.Markdown,
@@ -297,17 +326,9 @@ export class TinyFishResearchService implements ResearchService {
     const intent = classifyStudentIntent(query, request.course);
     const directUrls = extractPublicUrls(query).slice(0, 2);
     const searchQuery = buildSearchQuery(query, request.course, directUrls, intent);
-    const searchHits = (await this.#gateway.search(searchQuery))
-      .filter((result) => isPublicWebUrl(result.url))
-      .toSorted((left, right) => sourceScore(right, intent) - sourceScore(left, intent))
-      .filter((result) => sourceScore(result, intent) > -100);
+    const first = await collectFetchedSources(this.#gateway, searchQuery, query, intent, directUrls);
 
-    const candidates = uniqueUrls([
-      ...directUrls.map((url) => ({ title: new URL(url).hostname, url, snippet: "" })),
-      ...searchHits,
-    ]).filter((result) => sourceScore(result, intent) > -100).slice(0, 3);
-
-    if (candidates.length === 0) {
+    if (first.candidates.length === 0) {
       return {
         body: `I could not find a reliable public source for “${compact(query, 120)}”. I have not guessed.`,
         endpoints: ["search"],
@@ -317,14 +338,27 @@ export class TinyFishResearchService implements ResearchService {
       };
     }
 
-    const fetched = await this.#gateway.fetch(candidates.map(({ url }) => url), query);
-    const sources = candidates
-      .map((hit) => evidenceFrom(hit, fetched, query, intent))
-      .filter((source): source is EvidenceSource => Boolean(source));
+    let sources = first.sources;
     const endpoints: ResearchResult["endpoints"] = ["search", "fetch"];
 
+    if (
+      asksForExample(query) &&
+      sources.length > 0 &&
+      !evidenceHasExample(sources.map((source) => source.excerpt).join(" "))
+    ) {
+      const retryQuery = exampleRetryQuery(query);
+      if (retryQuery) {
+        try {
+          const retry = await collectFetchedSources(this.#gateway, retryQuery, query, intent, []);
+          sources = mergeExampleSources(sources, retry.sources);
+        } catch {
+          // The first readable pages still answer; a failed example search is not a second guess.
+        }
+      }
+    }
+
     if (sources.length === 0 && this.#agent) {
-      const extraction = await this.#agent.extract({ url: candidates[0]!.url, query });
+      const extraction = await this.#agent.extract({ url: first.candidates[0]!.url, query });
       if (extraction) {
         endpoints.push("agent");
         sources.push({ ...extraction, endpoint: "agent" });
@@ -338,7 +372,7 @@ export class TinyFishResearchService implements ResearchService {
           "I have not guessed or started an unbounded browser run. Try a public URL or a narrower question.",
         ].join(" "),
         endpoints,
-        sourceUrls: candidates.map(({ url }) => url),
+        sourceUrls: first.candidates.map(({ url }) => url),
         sources: [],
         checkedAt,
       };
@@ -349,7 +383,11 @@ export class TinyFishResearchService implements ResearchService {
     if (request.mode === "answer" && this.#composer) {
       compositionSources = sources
         .filter((source) => source.endpoint === "fetch")
-        .toSorted((left, right) => sourceScore(right, intent) - sourceScore(left, intent))
+        .toSorted((left, right) => {
+          const qualityDelta = exampleQuality(right.excerpt) - exampleQuality(left.excerpt);
+          if (qualityDelta !== 0) return qualityDelta;
+          return sourceScore(right, intent) - sourceScore(left, intent);
+        })
         .slice(0, 3);
       if (compositionSources.length > 0) {
         try {
@@ -427,6 +465,18 @@ export function compact(value: string, max = 360): string {
   return `${normalized.slice(0, Math.max(0, max - 1)).trimEnd()}…`;
 }
 
+/** Truncate on a word boundary so titles are not cut into fragments like "A L…". */
+export function compactWords(value: string, max = 80): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length <= max) return normalized;
+  const slice = normalized.slice(0, Math.max(0, max));
+  const boundary = slice.lastIndexOf(" ");
+  const trimmed = (boundary >= Math.floor(max * 0.6) ? slice.slice(0, boundary) : slice)
+    .trimEnd()
+    .replace(/[,:;]+$/g, "");
+  return `${trimmed}…`;
+}
+
 function normalizeQuery(input: string): string {
   return input
     .replace(/^(?:research|check|verify)\s*/i, "")
@@ -472,7 +522,83 @@ export function buildSearchQuery(
     deadline: "official university deadline academic calendar date",
     general_student_research: "official university student information",
   };
-  return compact(`${course ? `${course} ` : ""}${subject} ${suffix[intent]}`, 700);
+  const exampleSeeking = asksForExample(query) &&
+    (intent === "course_concept" || intent === "general_student_research");
+  const tail = exampleSeeking
+    ? "worked example open textbook lecture notes practice problem"
+    : suffix[intent];
+  return compact(`${course ? `${course} ` : ""}${subject} ${tail}`, 700);
+}
+
+export function asksForExample(query: string): boolean {
+  return /\b(?:examples?|worked solution|walk me through|show me)\b/i.test(query);
+}
+
+export function exampleRetryQuery(query: string): string {
+  const head = query.split(/\s+[—–]\s+/)[0] ?? query;
+  const subject = head
+    .replace(/^(?:please\s+)?(?:can you\s+|could you\s+)?(?:explain|define|describe|tell me about|what(?:'s| is| are)|how (?:do|does)|find)\s+/i, "")
+    .replace(/\b(?:an?\s+)?(?:explainable|worked|concrete|simple|step-by-step)\s+examples?\b/gi, " ")
+    .replace(/\b(?:examples?|please|show me|walk me through|with|give)\b/gi, " ")
+    .replace(/\b(?:a|an|the|one|me)\b/gi, " ")
+    .replace(/[?!.]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return compact(`${subject || head} worked example OpenStax university lecture notes`, 700);
+}
+
+function evidenceHasExample(evidence: string): boolean {
+  return /\b(?:worked example|for example|e\.g\.|example|solution|step-by-step)\b/i.test(evidence);
+}
+
+/** Higher when the excerpt actually computes a number, not just names an example. */
+export function exampleQuality(excerpt: string): number {
+  let score = 0;
+  if (evidenceHasExample(excerpt)) score += 2;
+  if (/\b(?:p|pr)\s*\(/i.test(excerpt)) score += 4;
+  if (/=\s*0\.\d+/.test(excerpt)) score += 6;
+  if (/\b\d+(?:\.\d+)?\s*%/.test(excerpt) || /\b\d+\s*percent\b/i.test(excerpt)) score += 6;
+  return score;
+}
+
+async function collectFetchedSources(
+  gateway: SearchFetchGateway,
+  searchQuery: string,
+  evidenceQuery: string,
+  intent: StudentIntent,
+  directUrls: string[],
+): Promise<{ candidates: SearchHit[]; sources: EvidenceSource[] }> {
+  const searchHits = (await gateway.search(searchQuery))
+    .filter((result) => isPublicWebUrl(result.url))
+    .toSorted((left, right) => sourceScore(right, intent) - sourceScore(left, intent))
+    .filter((result) => sourceScore(result, intent) > -100);
+  const htmlHits = searchHits.filter((result) => !isPdfUrl(result.url));
+  const preferredHits = htmlHits.length > 0 ? htmlHits : searchHits;
+
+  const candidates = uniqueUrls([
+    ...directUrls.map((url) => ({ title: new URL(url).hostname, url, snippet: "" })),
+    ...preferredHits,
+  ]).filter((result) => sourceScore(result, intent) > -100).slice(0, 3);
+
+  if (candidates.length === 0) return { candidates, sources: [] };
+
+  const fetched = await gateway.fetch(candidates.map(({ url }) => url), evidenceQuery);
+  const sources = candidates
+    .map((hit) => evidenceFrom(hit, fetched, evidenceQuery, intent))
+    .filter((source): source is EvidenceSource => Boolean(source));
+  return { candidates, sources };
+}
+
+function mergeExampleSources(primary: EvidenceSource[], extra: EvidenceSource[]): EvidenceSource[] {
+  const seen = new Set<string>();
+  const unique = [...extra, ...primary].filter((source) => {
+    if (seen.has(source.url)) return false;
+    seen.add(source.url);
+    return true;
+  });
+  return unique
+    .toSorted((left, right) => exampleQuality(right.excerpt) - exampleQuality(left.excerpt))
+    .slice(0, 5);
 }
 
 function extractPublicUrls(value: string): string[] {
@@ -493,7 +619,7 @@ function isPublicWebUrl(value: string): boolean {
       hostname.endsWith(".local") ||
       hostname.endsWith(".internal")
     ) return false;
-    if (/^(?:10|127|169\.254|192\.168)\./.test(hostname)) return false;
+    if (/^(?:\d{1,3}\.){3}\d{1,3}$/.test(hostname)) return false;
     const [firstValue, secondValue] = hostname.split(".");
     const first = Number(firstValue);
     const second = Number(secondValue);
@@ -545,8 +671,8 @@ function evidenceFrom(
     : relevantExcerpt(page?.text || "", query, intent, 700);
   if (evidence.length < 40) return undefined;
   return {
-    title: compact(page?.title || hit.title || new URL(hit.url).hostname, 110),
-    excerpt: evidence,
+    title: displaySourceTitle(page?.title || hit.title, hit.url),
+    excerpt: cleanReceiptText(evidence, 700),
     url: page?.finalUrl && isPublicWebUrl(page.finalUrl) ? page.finalUrl : hit.url,
     endpoint: "fetch",
   };
@@ -581,13 +707,17 @@ export function sourceScore(
       (host) => hostname === host || hostname.endsWith(`.${host}`),
     )
   ) return -100;
+  if (/^(?:\d{1,3}\.){3}\d{1,3}$/.test(hostname)) return -100;
 
   let score = 0;
   if (/\.(?:edu|ac)(?:\.[a-z]{2})?$/.test(hostname)) score += 8;
   if (hostname.endsWith(".gov") || hostname.endsWith(".gov.ae")) score += 7;
-  if (hostname === "openstax.org" || hostname.endsWith(".openstax.org")) score += 6;
-  if (/lecture|notes|syllabus|course|\[pdf\]/i.test(result.title)) score += 3;
-  if (/\.pdf(?:$|\?)/i.test(result.url)) score += 2;
+  if (hostname === "openstax.org" || hostname.endsWith(".openstax.org")) score += 12;
+  if (hostname === "probabilitycourse.com" || hostname.endsWith(".probabilitycourse.com")) score += 10;
+  if (hostname === "ocw.mit.edu" || hostname.endsWith(".mit.edu")) score += 8;
+  if (/lecture|notes|syllabus|course/i.test(result.title) && !/powerpoint/i.test(result.title)) score += 3;
+  if (isPdfUrl(result.url)) score -= 12;
+  if (/[|]/.test(result.title)) score -= 2;
   const label = `${result.title} ${hostname}`.toLowerCase();
   score += INTENT_TERMS[intent].filter((term) => label.includes(term)).length * 2;
   if (intent === "course_concept" && (hostname === "openstax.org" || hostname.endsWith(".openstax.org"))) score += 5;
@@ -634,6 +764,8 @@ function rankSentences(value: string, query: string, intent: StudentIntent): Ran
       let score = Math.max(0, 8 - index * 0.03);
       score += terms.filter((term) => lower.includes(term)).length * 5;
       score += intentTerms.filter((term) => lower.includes(term)).length * 2;
+      if (asksForExample(query) && evidenceHasExample(text)) score += 30;
+      if (asksForExample(query) && exampleQuality(text) >= 6) score += 24;
       if (/\b(?:official|eligible|deadline|isbn|edition|open|close|hours?|defined|means|probability)\b/i.test(text)) score += 2;
       if (/\b\d{1,4}\b/.test(text) && intent !== "course_concept") score += 1;
       return { text, score };
@@ -655,10 +787,72 @@ function cleanSourceText(value: string): string {
     .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
     .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
     .replace(/^#{1,6}\s+/gm, "")
-    .replace(/[`*_>|]/g, " ")
+    .replace(/\$\$[\s\S]*?\$\$/g, (block) => block.replace(/\$/g, " "))
+    .replace(/\$([^$]+)\$/g, "$1")
+    .replace(/\\(?:textrm|mathrm|mathbf|textit|text|mathrm)\{([^}]*)\}/g, "$1")
+    .replace(/\\[a-zA-Z]+\{([^}]*)\}/g, "$1")
+    .replace(/\\[a-zA-Z]+/g, " ")
+    .replace(/[{}]/g, " ")
+    .replace(/[`*_>]/g, " ")
     .replace(/[\t ]+/g, " ")
     .replace(/\r?\n\s*/g, "\n")
     .trim();
+}
+
+export function cleanReceiptText(value: string, max = 600): string {
+  return compact(cleanSourceText(value).replace(/\s+/g, " ").trim(), max);
+}
+
+const KNOWN_PUBLISHERS: Array<[string, string]> = [
+  ["openstax.org", "OpenStax"],
+  ["probabilitycourse.com", "Pishro-Nik"],
+  ["ocw.mit.edu", "MIT OpenCourseWare"],
+  ["khanacademy.org", "Khan Academy"],
+];
+
+function hostOf(url: string): string | undefined {
+  try {
+    return new URL(url).hostname.toLowerCase().replace(/^www\./, "");
+  } catch {
+    return undefined;
+  }
+}
+
+function titleHead(title: string): string {
+  return title
+    .split(/\s+[|\u2013\u2014-]\s+/)[0]
+    ?.replace(/#+\s*/g, "")
+    .replace(/\s+/g, " ")
+    .trim() ?? "";
+}
+
+/** Human source name without a TLD, so iMessage does not autolink the footer. */
+export function displaySourceName(source: { title: string; url: string }): string {
+  const host = hostOf(source.url);
+  if (host) {
+    const known = KNOWN_PUBLISHERS.find(([suffix]) => host === suffix || host.endsWith(`.${suffix}`));
+    if (known) return known[1];
+  }
+  const head = titleHead(source.title);
+  if (head.length >= 8 && !/untitled|^home$|powerpoint/i.test(head) && !/\.[a-z]{2,}$/i.test(head)) {
+    return compactWords(head, 42);
+  }
+  const stem = host?.split(".")[0]?.replace(/-/g, " ");
+  return stem ? stem.replace(/\b\w/g, (letter) => letter.toUpperCase()) : "Public source";
+}
+
+export function displaySourceTitle(title: string, url: string): string {
+  const head = titleHead(title);
+  if (head.length >= 8 && !/untitled|powerpoint/i.test(head)) return compactWords(head, 72);
+  return displaySourceName({ title, url });
+}
+
+function isPdfUrl(value: string): boolean {
+  try {
+    return /\.pdf$/i.test(new URL(value).pathname);
+  } catch {
+    return /\.pdf(?:$|\?)/i.test(value);
+  }
 }
 
 function queryTerms(query: string): string[] {
@@ -705,9 +899,8 @@ function requestedComponentGap(
   evidence: string,
 ): string | undefined {
   const lowerQuery = query.toLowerCase();
-  if (/\b(?:(?:worked|step-by-step)\s+)?example\b|\bworked solution\b/.test(lowerQuery) &&
-      !/\b(?:worked example|for example|example|solution|step-by-step)\b/i.test(evidence)) {
-    return "I couldn’t verify a worked example in the readable public sources.";
+  if (asksForExample(query) && !evidenceHasExample(evidence)) {
+    return MISSING_EXAMPLE_NOTE;
   }
   if (intent === "campus_service_event" && /\bhours?|open|close\b/.test(lowerQuery) &&
       !/\b(?:hours?|open|close[sd]?|\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?))\b/i.test(evidence)) {
@@ -728,21 +921,94 @@ function requestedComponentGap(
   return undefined;
 }
 
-function uncertaintyForIntent(intent: StudentIntent): string {
-  switch (intent) {
-    case "course_concept":
-      return "Public sources only; your instructor’s wording or private LMS material may differ.";
-    case "campus_service_event":
-      return "Campus hours and events can change; check the linked official page before travelling.";
-    case "textbook_resource":
-      return "Edition, ISBN, access, and availability can change; verify them with the publisher or library.";
-    case "scholarship_opportunity":
-      return "Eligibility and closing dates can change; verify them on the official application page.";
-    case "deadline":
-      return "Dates and time zones can change; confirm the official notice before acting.";
-    case "general_student_research":
-      return "This uses readable public sources only; private university systems were not checked.";
+const MISSING_EXAMPLE_NOTE =
+  "Public pages didn’t include a numeric classroom problem. Text EXAMPLE and I’ll look again for an open-textbook exercise.";
+
+const TOPIC_NOISE = new Set([
+  "example", "examples", "explainable", "worked", "please", "explain", "define",
+  "about", "using", "with", "from", "show", "walk", "through", "simple", "simpler",
+  "another", "textbook", "lecture", "notes", "university", "official", "student",
+  "information", "public", "course", "concept", "question",
+]);
+
+function topicTerms(query: string): string[] {
+  const head = query.split(/\s+[—–]\s+/)[0] ?? query;
+  return queryTerms(head).filter((term) => term.length >= 5 && !TOPIC_NOISE.has(term));
+}
+
+function answerMatchesTopic(query: string, text: string): boolean {
+  const terms = topicTerms(query);
+  if (terms.length === 0) return true;
+  const haystack = text.toLowerCase();
+  return terms.some((term) => haystack.includes(term));
+}
+
+function subjectLabel(query: string): string {
+  const head = (query.split(/\s+[—–]\s+/)[0] ?? query).trim();
+  return compactWords(head, 80);
+}
+
+function formatFooter(
+  sources: EvidenceSource[],
+  checkedAt: string,
+  note?: string,
+): string {
+  const titles = sources
+    .slice(0, 2)
+    .map((source) => displaySourceName(source))
+    .filter(Boolean);
+  const unique = titles.filter((title, index) => titles.indexOf(title) === index);
+  const sourceLabel = unique.length === 0 ? "public sources" : unique.join("; ");
+  const lines = [`Checked ${formatCheckedAt(checkedAt)} · ${sourceLabel}`];
+  if (note) lines.push(note === MISSING_EXAMPLE_NOTE ? note : `Uncertainty: ${note}`);
+  lines.push("Reply SOURCES for links, PLAN for a study path, or WATCH to track this page.");
+  return lines.join("\n");
+}
+
+function offTopicReply(
+  query: string,
+  sources: EvidenceSource[],
+  checkedAt: string,
+): string {
+  const direct = `I couldn’t use those public pages to explain ${subjectLabel(query)}. They don’t match the question, so I have not guessed.`;
+  return `${direct}\n\n${formatFooter(sources.slice(0, 2), checkedAt)}`;
+}
+
+function tutorParagraphs(
+  query: string,
+  answer: StructuredStudentAnswer,
+  workedExample: string | undefined,
+): string[] {
+  const asked = asksForExample(query);
+  const lines: string[] = [];
+  if (asked && workedExample) {
+    lines.push(compact(workedExample, 360));
+    const explanation = compact(answer.explanation, 220);
+    if (!tooSimilar(explanation, workedExample)) lines.push(explanation);
+  } else {
+    lines.push(compact(answer.explanation, 420));
+    if (workedExample && !tooSimilar(workedExample, answer.explanation)) {
+      lines.push(compact(workedExample, 280));
+    }
   }
+  const takeaway = compact(answer.takeaway, 160);
+  const spoken = lines.join(" ").toLowerCase();
+  const key = takeaway.toLowerCase().slice(0, 40);
+  if (takeaway.length >= 5 && key.length >= 5 && !spoken.includes(key) && !lines.some((line) => tooSimilar(line, takeaway))) {
+    lines.push(takeaway);
+  }
+  return lines;
+}
+
+function tooSimilar(left: string, right: string): boolean {
+  const terms = (value: string) => new Set(
+    value.toLowerCase().split(/[^a-z0-9]+/).filter((word) => word.length >= 5),
+  );
+  const a = terms(left);
+  const b = [...terms(right)];
+  if (a.size === 0 || b.length === 0) return false;
+  const overlap = b.filter((word) => a.has(word)).length;
+  return overlap >= Math.max(4, Math.ceil(b.length * 0.55));
 }
 
 function formatAnswer(
@@ -757,21 +1023,17 @@ function formatAnswer(
       (source, index, all) => all.findIndex((candidate) => candidate.url === source.url) === index,
     )
     : sources.slice(0, 2);
-  const direct = selections.length > 0
-    ? selections.map((selection) =>
-      `${selection.text} [${citedSources.findIndex((source) => source.url === selection.source.url) + 1}]`,
-    )
+  const direct = selections.map((selection) => selection.text);
+  if (direct.length > 0 && !answerMatchesTopic(query, direct.join(" "))) {
+    return offTopicReply(query, citedSources, checkedAt);
+  }
+  const prose = direct.length > 0
+    ? direct
     : ["I found public sources, but I couldn’t extract a short answer confidently."];
-  const names = citedSources.map((source, index) => `[${index + 1}] ${compact(source.title, 58)}`);
   const componentGap = requestedComponentGap(query, intent, sources.map(({ excerpt }) => excerpt).join(" "));
-  const uncertainty = componentGap ?? uncertaintyForIntent(intent);
-  const footer = [
-    `Checked ${formatCheckedAt(checkedAt)} • Sources: ${names.join("; ")}`,
-    `Uncertainty: ${uncertainty}`,
-    "SOURCES · PLAN · WATCH",
-  ].join("\n");
+  const footer = formatFooter(citedSources, checkedAt, componentGap);
   const allowedDirect = MAX_DEFAULT_REPLY_CHARACTERS - footer.length - 2;
-  return `${truncateReply(direct.join("\n"), Math.max(120, allowedDirect))}\n\n${footer}`;
+  return `${truncateReply(prose.join("\n\n"), Math.max(120, allowedDirect))}\n\n${footer}`;
 }
 
 function formatComposedAnswer(
@@ -789,27 +1051,14 @@ function formatComposedAnswer(
   if (citedSources.length === 0) return formatAnswer(query, sources, checkedAt, intent);
   const sourceEvidence = citedSources.map(({ excerpt }) => excerpt).join(" ");
   const componentGap = requestedComponentGap(query, intent, sourceEvidence);
-  const verifiedWorkedExample = componentGap?.includes("worked example")
+  const verifiedWorkedExample = componentGap === MISSING_EXAMPLE_NOTE
     ? undefined
     : answer.workedExample;
-  const footer = [
-    `Checked ${formatCheckedAt(checkedAt)} • Sources: ${citedSources.map((source, index) => `[${index + 1}] ${compact(source.title, 58)}`).join("; ")}`,
-    `Uncertainty: ${componentGap ?? uncertaintyForIntent(intent)}`,
-    "SOURCES · PLAN · WATCH",
-  ].join("\n");
+  const prose = tutorParagraphs(query, answer, verifiedWorkedExample).join("\n\n");
+  if (!answerMatchesTopic(query, prose)) return formatAnswer(query, sources, checkedAt, intent);
+  const footer = formatFooter(citedSources, checkedAt, componentGap);
   const available = Math.max(180, MAX_DEFAULT_REPLY_CHARACTERS - footer.length - 2);
-  const takeawayLine = `Takeaway: ${compact(answer.takeaway, 130)}`;
-  const workedLine = verifiedWorkedExample
-    ? `Worked example: ${compact(verifiedWorkedExample, 220)}`
-    : undefined;
-  const fixedLines = [workedLine, takeawayLine].filter((line): line is string => Boolean(line));
-  const fixedLength = fixedLines.reduce((total, line) => total + line.length + 1, 0);
-  const explanationBudget = Math.max(100, available - fixedLength - 4);
-  const direct = [
-    `${compact(answer.explanation, explanationBudget)} ${citedSources.map((_source, index) => `[${index + 1}]`).join("")}`,
-    ...fixedLines,
-  ].join("\n");
-  return `${truncateReply(direct, available)}\n\n${footer}`;
+  return `${truncateReply(prose, available)}\n\n${footer}`;
 }
 
 function formatPlan(
@@ -837,7 +1086,7 @@ function formatPlan(
   ].join("\n");
 }
 
-function formatCheckedAt(iso: string): string {
+export function formatCheckedAt(iso: string): string {
   return new Intl.DateTimeFormat("en-AE", {
     dateStyle: "medium",
     timeStyle: "short",

@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { sampleSignal } from "./sampleSignal.js";
+import { demoThread, sampleSignal } from "./sampleSignal.js";
 
 describe("sampleSignal", () => {
-  it("labels fixture evidence without pretending Agent was used", () => {
-    expect(sampleSignal.sources.some((source) => source.publisher.includes("Synthetic"))).toBe(
-      true,
-    );
+  it("showcases a public-source iMessage answer without claiming Agent ran", () => {
+    expect(sampleSignal.question).toMatch(/conditional probability/i);
+    expect(sampleSignal.answer).toMatch(/P\(R\)=0\.23/);
+    expect(sampleSignal.sources.map((source) => source.publisher).join(" ")).toMatch(/OpenStax/);
+    expect(sampleSignal.sources.every((source) => !/study\.com/i.test(source.url))).toBe(true);
     expect(sampleSignal.stages.find((stage) => stage.endpoint === "agent")?.status).toBe(
       "waiting",
     );
@@ -17,5 +18,12 @@ describe("sampleSignal", () => {
       claim.sourceIds.filter((sourceId) => !sourceIds.has(sourceId)),
     );
     expect(missing).toEqual([]);
+  });
+
+  it("keeps the demo thread on the same topic", () => {
+    expect(demoThread.some((bubble) => bubble.role === "student" && /example/i.test(bubble.text))).toBe(true);
+    expect(demoThread.filter((bubble) => bubble.role === "signal").every((bubble) =>
+      /conditional|P\(|rain/i.test(bubble.text),
+    )).toBe(true);
   });
 });

@@ -1,62 +1,57 @@
 import {
-  Bell,
-  Clock3,
+  BookOpenText,
   Database,
-  FileCheck2,
-  MessageCircle,
+  Keyboard,
+  MessageSquareText,
+  NotebookPen,
   ShieldCheck,
-  Smartphone,
 } from "lucide-react";
+import type { AppView } from "../views.js";
 
-const items = [
-  { id: "receipt", label: "Receipt", icon: FileCheck2 },
-  { id: "today", label: "iMessage demo", icon: MessageCircle },
-  { id: "connect", label: "Connect", icon: Smartphone },
-  { id: "watches", label: "Watches", icon: Bell },
-  { id: "memory", label: "Memory", icon: Database },
+const items: Array<{
+  id: AppView;
+  label: string;
+  icon: typeof NotebookPen;
+}> = [
+  { id: "start", label: "Start here", icon: NotebookPen },
+  { id: "example", label: "Example", icon: MessageSquareText },
+  { id: "commands", label: "What to text", icon: Keyboard },
+  { id: "receipt", label: "Sources", icon: BookOpenText },
+  { id: "memory", label: "What it remembers", icon: Database },
   { id: "privacy", label: "Privacy", icon: ShieldCheck },
-] as const;
-
-export type ViewId = (typeof items)[number]["id"];
+];
 
 type SidebarProps = {
-  active: ViewId;
-  onSelect: (view: ViewId) => void;
+  view: AppView;
+  onNavigate: (view: AppView) => void;
 };
 
-export function Sidebar({ active, onSelect }: SidebarProps) {
+export function Sidebar({ view, onNavigate }: SidebarProps) {
   return (
-    <aside className="sidebar" aria-label="Primary navigation">
-      <nav className="sidebar__nav">
-        {items.map(({ id, label, icon: Icon }) => (
-          <button
-            className={`nav-item ${active === id ? "nav-item--active" : ""}`}
-            key={id}
-            type="button"
-            aria-current={active === id ? "page" : undefined}
-            onClick={() => onSelect(id)}
-          >
-            <Icon aria-hidden="true" size={19} strokeWidth={1.7} />
-            <span>{label}</span>
-          </button>
-        ))}
+    <aside className="sidebar" id="primary-navigation">
+      <nav className="sidebar__nav" aria-label="Field guide">
+        {items.map((item) => {
+          const Icon = item.icon;
+          const active = view === item.id;
+          return (
+            <button
+              key={item.id}
+              type="button"
+              className={active ? "nav-item nav-item--active" : "nav-item"}
+              aria-current={active ? "page" : undefined}
+              onClick={() => onNavigate(item.id)}
+            >
+              <Icon aria-hidden="true" size={18} strokeWidth={1.75} />
+              <span>{item.label}</span>
+            </button>
+          );
+        })}
       </nav>
-
       <div className="sidebar__footer">
-        <button className="sidebar-note" type="button" onClick={() => onSelect("watches")}>
-          <Clock3 aria-hidden="true" size={19} strokeWidth={1.6} />
-          <span>
-            <strong>Quiet hours</strong>
-            <small>10 PM–8 AM · Dubai</small>
-          </span>
-        </button>
-        <button className="sidebar-note" type="button" onClick={() => onSelect("privacy")}>
-          <ShieldCheck aria-hidden="true" size={19} strokeWidth={1.6} />
-          <span>
-            <strong>Privacy controls</strong>
-            <small>Retention and deletion</small>
-          </span>
-        </button>
+        <p className="sidebar-note">
+          <strong>iMessage only</strong>
+          <small>This page teaches the line. It does not chat.</small>
+        </p>
       </div>
     </aside>
   );

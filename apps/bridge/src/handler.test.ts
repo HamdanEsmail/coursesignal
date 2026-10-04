@@ -73,7 +73,8 @@ describe("CourseSignalBridge consent and diagnostics", () => {
     expect(h.sent[0]).toMatch(/reply START/i);
     expect(h.sent[0]).toMatch(/TinyFish/i);
     expect(h.sent[0]).toMatch(/OpenRouter/i);
-    expect(h.sent[0]).toMatch(/not your phone number, prior chat, or saved course name/i);
+    expect(h.sent[0]).toMatch(/does not receive your phone number or saved course name/i);
+    expect(h.sent[0]).toMatch(/not your earlier messages/i);
     expect(h.research.research).not.toHaveBeenCalled();
   });
 
@@ -98,7 +99,7 @@ describe("CourseSignalBridge consent and diagnostics", () => {
     const h = harness();
     await h.bridge.handle(inbound("START", "event-start"), h.port);
     expect((await h.store.getConversation("conversation"))?.consentedAt).toBe(NOW.toISOString());
-    expect((await h.store.getConversation("conversation"))?.consentVersion).toBe(2);
+    expect((await h.store.getConversation("conversation"))?.consentVersion).toBe(3);
     expect(h.sent[0]).toMatch(/ready/i);
   });
 
@@ -118,7 +119,7 @@ describe("CourseSignalBridge consent and diagnostics", () => {
 
     await h.bridge.handle(inbound("START", "legacy-start"), h.port);
     const renewed = await h.store.getConversation("conversation");
-    expect(renewed?.consentVersion).toBe(2);
+    expect(renewed?.consentVersion).toBe(3);
     expect(renewed?.activeCourse).toBe("STAT 210");
   });
 
@@ -143,7 +144,7 @@ describe("CourseSignalBridge research", () => {
     await start(h);
     const work = h.bridge.handle(inbound("Explain independence", "event-question"), h.port);
     await vi.waitFor(() => expect(h.sent).toHaveLength(1));
-    expect(h.sent[0]).toMatch(/checking live public sources/i);
+    expect(h.sent[0]).toMatch(/Checking public sources for that now/);
     expect(h.typing).toEqual(["start"]);
     release?.();
     await work;
@@ -201,10 +202,49 @@ describe("CourseSignalBridge memory commands", () => {
     await h.bridge.handle(inbound("Explain conditional probability", "plan-question"), h.port);
     await h.bridge.handle(inbound("PLAN", "plan-command"), h.port);
     expect(h.research.research).toHaveBeenLastCalledWith({
-      query: "Explain conditional probability",
+      query: "conditional probability",
       mode: "plan",
       course: "STAT 210",
     });
+  });
+
+  it("keeps a short example follow-up on the last topic", async () => {
+    const h = harness();
+    await start(h);
+    await h.bridge.handle(inbound("What is Conditional probability in statistics?", "follow-1"), h.port);
+    await h.bridge.handle(inbound("Give me an explainable example?", "follow-2"), h.port);
+    expect(h.research.research).toHaveBeenLastCalledWith(expect.objectContaining({
+      query: "Conditional probability in statistics — Give me an explainable example?",
+      mode: "answer",
+    }));
+    expect((await h.store.getConversation("conversation"))?.lastResearch?.topic)
+      .toBe("Conditional probability in statistics");
+  });
+
+  it("replaces the topic when the next message is a new question", async () => {
+    const h = harness();
+    await start(h);
+    await h.bridge.handle(inbound("What is Conditional probability in statistics?", "switch-1"), h.port);
+    await h.bridge.handle(inbound("What is Bayes theorem?", "switch-2"), h.port);
+    const query = vi.mocked(h.research.research).mock.calls.at(-1)?.[0].query;
+    expect(query).toBe("What is Bayes theorem?");
+    expect(query).not.toMatch(/conditional probability/i);
+    expect((await h.store.getConversation("conversation"))?.lastResearch?.topic).toBe("Bayes theorem");
+  });
+
+  it("requires START again after the older follow-up disclosure", async () => {
+    const h = harness();
+    await h.store.putConversation("conversation", {
+      consentedAt: NOW.toISOString(),
+      consentVersion: 2,
+      courses: ["STAT 210"],
+      activeCourse: "STAT 210",
+      watches: [],
+      updatedAt: NOW.toISOString(),
+    });
+    await h.bridge.handle(inbound("Give me an example", "consent-v2"), h.port);
+    expect(h.research.research).not.toHaveBeenCalled();
+    expect(h.sent.at(-1)).toMatch(/reply START/i);
   });
 
   it("returns SOURCES from memory without another provider call", async () => {
@@ -217,6 +257,39 @@ describe("CourseSignalBridge memory commands", () => {
     expect(h.sent.at(-1)).toContain("This official source contains enough evidence");
     expect(h.sent.at(-1)).toContain("https://example.edu/source");
     expect(h.research.research).toHaveBeenCalledTimes(calls);
+  });
+
+  it("prints a readable SOURCES receipt without markdown or latex", async () => {
+    const h = harness();
+    await start(h);
+    await h.store.putConversation("conversation", {
+      consentedAt: NOW.toISOString(),
+      consentVersion: 3,
+      courses: [],
+      watches: [],
+      updatedAt: NOW.toISOString(),
+      lastResearch: {
+        query: "conditional probability",
+        topic: "conditional probability",
+        mode: "answer",
+        checkedAt: NOW.toISOString(),
+        endpoints: ["search", "fetch"],
+        sources: [{
+          title: "Untitled source",
+          url: "https://www.probabilitycourse.com/chapter1/1_4_0_conditional_probability.php",
+          excerpt: "## 1.4.0 Conditional Probability $P(R)=0.23$ \\textrm{where} R is rain.",
+          endpoint: "fetch",
+        }],
+      },
+    });
+    await h.bridge.handle(inbound("SOURCES", "source-latex"), h.port);
+    const receipt = h.sent.at(-1) ?? "";
+    expect(receipt).toContain("EVIDENCE RECEIPT");
+    expect(receipt).toContain("P(R)=0.23");
+    expect(receipt).not.toContain("##");
+    expect(receipt).not.toContain("textrm");
+    expect(receipt).not.toContain("Untitled source");
+    expect(receipt).toContain("https://www.probabilitycourse.com/chapter1/1_4_0_conditional_probability.php");
   });
 
   it("opts into WATCH and pauses it with STOP", async () => {
