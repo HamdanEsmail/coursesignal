@@ -9,7 +9,9 @@ afterEach(async () => {
   database = undefined;
 });
 
-describe("CourseSignal core migration", () => {
+// PGlite compiles its WASM runtime on first use, which alone can exceed the
+// 5 s default on a cold CI runner. The migrations themselves are fast.
+describe("CourseSignal core migration", { timeout: 60_000 }, () => {
   it("creates every durable core table", async () => {
     database = await createMigratedDatabase();
     const result = await database.query<{ table_name: string }>(`

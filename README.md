@@ -51,10 +51,16 @@ iPhone
 - `packages/tinyfish` — provider transport
 - `packages/provider-control` — metering, reservation, retry, idempotency
 
+## Deploying from GitHub
+
+The `Check` workflow has a `deploy-web` job that publishes `apps/web/dist` to the `coursesignal` Pages project on every push to `main` once the checks pass. It stays a no-op until two repository secrets exist: `CLOUDFLARE_API_TOKEN` (a token with the *Cloudflare Pages: Edit* permission) and `CLOUDFLARE_ACCOUNT_ID`. Without them, deploys remain manual via `npm run deploy:web` or the Direct Upload tool.
+
 ## Local checks
 
+Use Node.js 24 (`.nvmrc`); CI and the bridge image use the same major.
+
 ```powershell
-npm install
+npm ci
 npm run check
 ```
 
