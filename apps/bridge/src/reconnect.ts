@@ -79,10 +79,16 @@ export function abortableSleep(milliseconds: number, signal: AbortSignal): Promi
       reject(signal.reason);
       return;
     }
-    const timer = setTimeout(resolve, milliseconds);
-    signal.addEventListener("abort", () => {
+    const onAbort = (): void => {
       clearTimeout(timer);
       reject(signal.reason);
-    }, { once: true });
+    };
+    const timer = setTimeout(() => {
+      // Remove the listener once the sleep completes; otherwise every reconnect
+      // leaves one behind on the long-lived shutdown signal.
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, milliseconds);
+    signal.addEventListener("abort", onAbort, { once: true });
   });
 }

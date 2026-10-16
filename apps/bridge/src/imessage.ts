@@ -28,6 +28,20 @@ function requestShutdown(signal: string): void {
 process.once("SIGINT", () => requestShutdown("SIGINT"));
 process.once("SIGTERM", () => requestShutdown("SIGTERM"));
 
+// Node exits immediately on an unhandled rejection or exception. For an
+// always-on bridge that would drop in-flight replies without a log line, so
+// log the failure, drain through the ordinary shutdown path, and hard-exit if
+// the drain itself hangs. The container restarts the replica.
+function failFast(event: string, reason: unknown): void {
+  logger.error(event, {
+    errorType: reason instanceof Error ? reason.name : typeof reason,
+  });
+  requestShutdown(event);
+  setTimeout(() => process.exit(1), 15_000).unref();
+}
+process.once("unhandledRejection", (reason) => failFast("process.unhandled_rejection", reason));
+process.once("uncaughtException", (error) => failFast("process.uncaught_exception", error));
+
 try {
   await runWithReconnect({
     signal: shutdown.signal,
